@@ -16,7 +16,7 @@ from alpha_bot.storage.repository import (
 )
 from alpha_bot.trading.models import TradeSignal
 from alpha_bot.trading.safety import run_all_checks, set_cooldown
-from alpha_bot.trading.sigma_sender import send_buy_to_sigma, send_sell_to_sigma
+from alpha_bot.trading.maestro_sender import send_buy_to_maestro, send_sell_to_maestro
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ async def handle_signal(
 ) -> None:
     """Called by the listener when a new signal is detected.
 
-    Flow: safety checks -> send buy to Sigma -> record position + trade in DB -> notify.
+    Flow: safety checks -> send buy to Maestro -> record position + trade in DB -> notify.
     """
     async with async_session() as session:
         open_positions = await get_open_positions(session)
@@ -59,11 +59,11 @@ async def handle_signal(
             )
             return
 
-        # Send buy to Sigma
-        success = await send_buy_to_sigma(telethon_client, signal.token_mint)
+        # Send buy to Maestro
+        success = await send_buy_to_maestro(telethon_client, signal.token_mint)
         if not success:
             await _notify(
-                f"Failed to send buy to Sigma for <b>{signal.ticker or signal.token_mint[:8]}</b>"
+                f"Failed to send buy to Maestro for <b>{signal.ticker or signal.token_mint[:8]}</b>"
             )
             return
 
@@ -72,6 +72,11 @@ async def handle_signal(
         # Fetch initial price from DexScreener for tracking
         entry_price = await _fetch_price(signal.token_mint)
 
+        # Determine trade amount based on chain
+        is_evm = signal.token_mint.startswith("0x")
+        trade_amount = settings.trade_amount_base_eth if is_evm else settings.trade_amount_sol
+        native_token = "ETH" if is_evm else "SOL"
+
         # Create position record
         position = Position(
             token_mint=signal.token_mint,
@@ -79,7 +84,7 @@ async def handle_signal(
             chain=signal.chain,
             entry_price_usd=entry_price,
             current_price_usd=entry_price,
-            entry_amount_sol=settings.trade_amount_sol,
+            entry_amount_sol=trade_amount,
             source_group=signal.source_group,
             source_message_id=signal.source_message_id,
         )
@@ -92,7 +97,7 @@ async def handle_signal(
             token_mint=signal.token_mint,
             token_symbol=signal.ticker,
             chain=signal.chain,
-            amount_in=settings.trade_amount_sol,
+            amount_in=trade_amount,
             price_usd=entry_price,
             status="confirmed",
             trigger="auto_buy",
@@ -100,7 +105,7 @@ async def handle_signal(
         await save_trade(session, trade)
 
         logger.info(
-            "BUY sent to Sigma: %s (%s) @ $%s | source: %s",
+            "BUY sent to Maestro: %s (%s) @ $%s | source: %s",
             signal.ticker,
             signal.token_mint[:8],
             f"{entry_price:.8f}" if entry_price else "?",
@@ -108,10 +113,10 @@ async def handle_signal(
         )
 
         await _notify(
-            f"BUY sent to Sigma\n"
+            f"BUY sent to Maestro\n"
             f"Token: <b>${signal.ticker or signal.token_mint[:8]}</b>\n"
             f"CA: <code>{signal.token_mint}</code>\n"
-            f"Amount: {settings.trade_amount_sol} SOL\n"
+            f"Amount: {trade_amount} {native_token}\n"
             f"Price: ${entry_price:.8f}\n"
             f"Source: {signal.source_group}"
         )
@@ -130,12 +135,12 @@ async def check_exits(
     position.current_price_usd = current_price
     position.unrealized_pnl_pct = pnl_pct
 
-    # Sigma sells % of CURRENT bag, not original.
+    # Maestro sells % of CURRENT bag, not original.
     # Our config defines % of ORIGINAL to sell at each TP:
     #   TP1: 50% of original -> 50% of current (nothing sold yet)
     #   TP2: 25% of original -> 50% of current (50% already sold at TP1)
     #   TP3: 25% of original -> 100% of remaining (75% already sold)
-    # We compute the Sigma % dynamically based on what's been sold.
+    # We compute the Maestro % dynamically based on what's been sold.
 
     # Stop-loss: sell 100% of whatever is left
     if pnl_pct <= settings.stop_loss_pct and not position.stop_loss_hit:
@@ -173,8 +178,8 @@ async def _execute_sell(
     telethon_client: TelegramClient,
     close: bool = False,
 ) -> None:
-    """Send sell command to Sigma, update position, record trade, notify."""
-    success = await send_sell_to_sigma(
+    """Send sell command to Maestro, update position, record trade, notify."""
+    success = await send_sell_to_maestro(
         telethon_client, position.token_mint, sell_pct
     )
 
@@ -207,7 +212,7 @@ async def _execute_sell(
     label = trigger_labels.get(trigger, trigger.upper())
     pnl = position.unrealized_pnl_pct
 
-    status = "SELL sent to Sigma" if success else "SELL FAILED"
+    status = "SELL sent to Maestro" if success else "SELL FAILED (Maestro)"
     await _notify(
         f"{status} — <b>{label}</b>\n"
         f"Token: <b>${position.token_symbol or position.token_mint[:8]}</b>\n"

@@ -112,7 +112,7 @@ async def main() -> None:
     )
     server = uvicorn.Server(config)
 
-    # --- Auto-Trading (Sigma integration) ---
+    # --- Auto-Trading (Maestro integration) ---
     telethon_client = None
     if settings.trading_enabled and is_telethon_configured() and has_telethon_session():
         from telethon import TelegramClient

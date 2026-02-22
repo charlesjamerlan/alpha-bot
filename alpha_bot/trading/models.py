@@ -15,8 +15,8 @@ class TradeSignal(BaseModel):
     author: str = ""
 
 
-class SigmaAction(BaseModel):
-    """Result of sending a command to Sigma bot."""
+class MaestroAction(BaseModel):
+    """Result of sending a command to Maestro bot."""
 
     success: bool
     message_sent: str = ""

@@ -55,10 +55,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     llm_model: str = "claude-sonnet-4-5-20250929"
 
-    # --- Auto-Trading (Sigma bot integration) ---
+    # --- Auto-Trading (Maestro bot integration) ---
     trading_enabled: bool = False  # Master kill switch
-    sigma_bot_username: str = "Sigma_buyBot"  # Sigma bot's TG username
+    maestro_bot_username: str = "MaestroSniperBot"  # Maestro bot's TG username
     trade_amount_sol: float = 0.1  # SOL per trade
+    trade_amount_base_eth: float = 0.0001  # ETH per trade on BASE/ETH chains
     slippage_bps: int = 500  # 5%
     max_open_positions: int = 10
     min_liquidity_usd: float = 5000.0

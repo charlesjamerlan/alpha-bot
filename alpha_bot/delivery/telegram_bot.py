@@ -91,8 +91,8 @@ class TelegramDelivery(DeliveryChannel):
             "/pnl &lt;group&gt; [days] — TG group P/L analysis\n\n"
             "<b>Trading:</b>\n"
             "/positions — List open positions\n"
-            "/buy &lt;CA&gt; — Manual buy via Sigma\n"
-            "/sell &lt;CA&gt; [pct] — Manual sell via Sigma\n"
+            "/buy &lt;CA&gt; — Manual buy via Maestro\n"
+            "/sell &lt;CA&gt; [pct] — Manual sell via Maestro\n"
             "/trading on|off — Toggle auto-trading\n\n"
             "/help — Show this message",
             parse_mode="HTML",
@@ -107,8 +107,8 @@ class TelegramDelivery(DeliveryChannel):
             "<code>/pnl cryptogroup 30</code> — Analyze last 30 days\n\n"
             "<b>Trading:</b>\n"
             "<code>/positions</code> — Show open positions with P/L\n"
-            "<code>/buy CA_ADDRESS</code> — Send buy to Sigma bot\n"
-            "<code>/sell CA_ADDRESS 50</code> — Sell 50% via Sigma\n"
+            "<code>/buy CA_ADDRESS</code> — Send buy to Maestro bot\n"
+            "<code>/sell CA_ADDRESS 50</code> — Sell 50% via Maestro\n"
             "<code>/trading on</code> — Enable auto-trading\n"
             "<code>/trading off</code> — Disable auto-trading",
             parse_mode="HTML",
@@ -288,15 +288,19 @@ class TelegramDelivery(DeliveryChannel):
             )
             return
 
+        ca = addresses[0]
+        # Detect chain from CA format: 0x prefix = EVM (base/eth), else Solana
+        chain = "base" if ca.startswith("0x") else "solana"
+
         signal = TradeSignal(
-            token_mint=addresses[0],
-            chain="solana",
+            token_mint=ca,
+            chain=chain,
             source_group="manual",
             author="manual",
         )
 
         await update.message.reply_text(
-            f"Sending buy to Sigma for <code>{addresses[0]}</code>...",
+            f"Sending buy to Maestro for <code>{ca}</code> ({chain})...",
             parse_mode="HTML",
         )
         await handle_signal(signal, telethon_client)
@@ -329,17 +333,17 @@ class TelegramDelivery(DeliveryChannel):
             )
             return
 
-        from alpha_bot.trading.sigma_sender import send_sell_to_sigma
+        from alpha_bot.trading.maestro_sender import send_sell_to_maestro
 
-        success = await send_sell_to_sigma(telethon_client, ca, sell_pct)
+        success = await send_sell_to_maestro(telethon_client, ca, sell_pct)
         if success:
             await update.message.reply_text(
-                f"Sell sent to Sigma for <code>{ca}</code> ({sell_pct}%)",
+                f"Sell sent to Maestro for <code>{ca}</code> ({sell_pct}%)",
                 parse_mode="HTML",
             )
         else:
             await update.message.reply_text(
-                f"❌ Failed to send sell to Sigma.", parse_mode="HTML"
+                "Failed to send sell to Maestro.", parse_mode="HTML"
             )
 
     @staticmethod
