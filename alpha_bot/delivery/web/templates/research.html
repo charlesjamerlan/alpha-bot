@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}Alpha Bot - Research{% endblock %}
+{% block content %}
+<h2>Ticker Research</h2>
+
+<form class="research-form" method="post" action="/research">
+    <input type="text" name="ticker" placeholder="$SOL, BTC, ETH…"
+           value="{{ report.ticker if report else '' }}" autofocus>
+    <button type="submit">Research</button>
+</form>
+
+{% if error is defined and error %}
+    <div class="section-card" style="border-color: #f85149;">
+        <p style="color: #f85149;">{{ error }}</p>
+    </div>
+{% endif %}
+
+{% if report %}
+
+    {# --- Section 1: Snapshot --- #}
+    {% if report.snapshot %}
+    <div class="section-card">
+        <h3>Price Snapshot</h3>
+        <div class="stats-grid">
+            {% if report.snapshot.price_usd is not none %}
+            <div class="stat-box">
+                <div class="value">
+                    {% if report.snapshot.price_usd < 1 %}
+                        ${{ "%.4f"|format(report.snapshot.price_usd) }}
+                    {% else %}
+                        ${{ "{:,.2f}".format(report.snapshot.price_usd) }}
+                    {% endif %}
+                </div>
+                <div class="label">Price</div>
+            </div>
+            {% endif %}
+            {% if report.snapshot.price_change_24h_pct is not none %}
+            <div class="stat-box">
+                <div class="value" style="color: {{ '#3fb950' if report.snapshot.price_change_24h_pct >= 0 else '#f85149' }}">
+                    {{ "%+.2f"|format(report.snapshot.price_change_24h_pct) }}%
+                </div>
+                <div class="label">24h Change</div>
+            </div>
+            {% endif %}
+            {% if report.snapshot.price_change_7d_pct is not none %}
+            <div class="stat-box">
+                <div class="value" style="color: {{ '#3fb950' if report.snapshot.price_change_7d_pct >= 0 else '#f85149' }}">
+                    {{ "%+.2f"|format(report.snapshot.price_change_7d_pct) }}%
+                </div>
+                <div class="label">7d Change</div>
+            </div>
+            {% endif %}
+            {% if report.snapshot.market_cap_usd %}
+            <div class="stat-box">
+                <div class="value">${{ "{:,.0f}".format(report.snapshot.market_cap_usd) }}</div>
+                <div class="label">Market Cap</div>
+            </div>
+            {% endif %}
+            {% if report.snapshot.volume_24h_usd %}
+            <div class="stat-box">
+                <div class="value">${{ "{:,.0f}".format(report.snapshot.volume_24h_usd) }}</div>
+                <div class="label">24h Volume</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# --- Section 2: Direct Buzz --- #}
+    <div class="section-card">
+        <h3>Direct Buzz</h3>
+        <div class="stats-grid">
+            <div class="stat-box">
+                <div class="value">{{ report.buzz.total_tweets }}</div>
+                <div class="label">Tweets</div>
+            </div>
+            <div class="stat-box">
+                <div class="value" style="color: #3fb950">{{ report.buzz.bullish_count }}</div>
+                <div class="label">Bullish</div>
+            </div>
+            <div class="stat-box">
+                <div class="value" style="color: #f85149">{{ report.buzz.bearish_count }}</div>
+                <div class="label">Bearish</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">{{ report.buzz.neutral_count }}</div>
+                <div class="label">Neutral</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">{{ "{:,}".format(report.buzz.total_engagement) }}</div>
+                <div class="label">Engagement</div>
+            </div>
+        </div>
+
+        {% if report.buzz.top_tweets %}
+        <h3 style="margin-top: 1rem;">Top Tweets</h3>
+        {% for t in report.buzz.top_tweets[:5] %}
+        <div class="signal-card" style="margin-top: 0.5rem;">
+            <div class="signal-header">
+                <span class="author">@{{ t.author }}</span>
+                <span style="font-size: 0.8rem; color: #8b949e;">
+                    {{ t.likes }} likes &middot; {{ t.retweets }} RTs
+                </span>
+            </div>
+            <p class="tweet-text">{{ t.text }}</p>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    {# --- Section 3: Smart Money Radar --- #}
+    {% if report.smart_money.top_accounts %}
+    <div class="section-card">
+        <h3>Smart Money Radar</h3>
+        {% for acct in report.smart_money.top_accounts[:10] %}
+        <div class="account-item">
+            <div>
+                <span class="author">@{{ acct.username }}</span>
+                <span style="font-size: 0.8rem; color: #8b949e; margin-left: 0.5rem;">
+                    {{ "{:,}".format(acct.followers) }} followers
+                </span>
+                {% if acct.first_mention %}
+                    <span class="new-badge">NEW</span>
+                {% endif %}
+            </div>
+            <div>
+                <span style="font-size: 0.8rem; color: #8b949e;">
+                    {{ acct.tweet_count_about_ticker }} mention{{ "s" if acct.tweet_count_about_ticker != 1 }}
+                </span>
+            </div>
+        </div>
+        {% endfor %}
+
+        {% if report.smart_money.adjacent_tickers %}
+        <div style="margin-top: 0.8rem;">
+            <span style="font-size: 0.85rem; color: #8b949e;">These accounts also discuss: </span>
+            {% for ticker, count in report.smart_money.adjacent_tickers[:10] %}
+                <span class="ticker-tag">${{ ticker }} ({{ count }})</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# --- Section 4: Narrative Map --- #}
+    {% if report.narratives %}
+    <div class="section-card">
+        <h3>Narrative Map</h3>
+        {% for n in report.narratives[:6] %}
+        <div class="account-item">
+            <span>{{ n.narrative }}</span>
+            <span style="font-size: 0.8rem; color: #8b949e;">
+                {{ n.tweet_count }} tweets &middot; {{ "{:,}".format(n.total_engagement) }} engagement
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# --- Co-mentioned tickers --- #}
+    {% if report.co_mentioned_tickers %}
+    <div class="section-card">
+        <h3>Also Mentioned</h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+            {% for ticker, count in report.co_mentioned_tickers[:15] %}
+                <span class="ticker-tag">${{ ticker }} ({{ count }})</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# --- Section 5: Risk Signals --- #}
+    <div class="section-card">
+        <h3>Risk Assessment</h3>
+        <p>
+            Risk Level:
+            <strong class="risk-{{ report.risk.risk_level }}">
+                {{ report.risk.risk_level|upper }}
+            </strong>
+        </p>
+        {% if report.risk.warnings %}
+        <ul style="margin-top: 0.5rem; padding-left: 1.2rem; font-size: 0.9rem;">
+            {% for w in report.risk.warnings %}
+                <li style="color: #d29922; margin-bottom: 0.3rem;">{{ w }}</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+            <p style="color: #3fb950; font-size: 0.9rem; margin-top: 0.3rem;">No risk signals detected.</p>
+        {% endif %}
+    </div>
+
+    {# --- Section 6: LLM Summary --- #}
+    {% if report.llm_summary %}
+    <div class="section-card">
+        <h3>AI Research Brief</h3>
+        <div class="llm-summary">{{ report.llm_summary }}</div>
+    </div>
+    {% endif %}
+
+{% else %}
+    <div class="empty">
+        <p>Enter a crypto ticker above to generate a full intelligence report.</p>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem;">
+            Examples: SOL, BTC, ETH, PEPE, ARB, SUI, TIA
+        </p>
+    </div>
+{% endif %}
+
+{# --- Past Reports --- #}
+{% if past_reports is defined and past_reports %}
+<h2 style="margin-top: 2rem;">Past Reports</h2>
+{% for r in past_reports %}
+    {% set data = json.loads(r.report_json) %}
+    <div class="section-card">
+        <div class="signal-header">
+            <div>
+                <span style="font-weight: 700; color: #58a6ff; font-size: 1.1rem;">${{ r.ticker }}</span>
+                {% if data.snapshot and data.snapshot.price_usd %}
+                    <span style="margin-left: 0.8rem; font-size: 0.9rem;">
+                        ${{ "{:,.2f}".format(data.snapshot.price_usd) if data.snapshot.price_usd >= 1 else "%.4f"|format(data.snapshot.price_usd) }}
+                    </span>
+                    {% if data.snapshot.price_change_24h_pct is not none %}
+                        <span style="margin-left: 0.4rem; font-size: 0.85rem; color: {{ '#3fb950' if data.snapshot.price_change_24h_pct >= 0 else '#f85149' }}">
+                            {{ "%+.1f"|format(data.snapshot.price_change_24h_pct) }}%
+                        </span>
+                    {% endif %}
+                {% endif %}
+            </div>
+            <span style="font-size: 0.8rem; color: #8b949e;">
+                {{ r.created_at.strftime('%b %d, %H:%M') }}
+            </span>
+        </div>
+        <div class="signal-meta" style="margin-top: 0.5rem;">
+            {% if data.buzz %}
+                <span>{{ data.buzz.total_tweets }} tweets</span>
+                <span style="color: #3fb950">{{ data.buzz.bullish }} bullish</span>
+                <span style="color: #f85149">{{ data.buzz.bearish }} bearish</span>
+            {% endif %}
+            {% if data.risk %}
+                <span class="risk-{{ data.risk.level }}">Risk: {{ data.risk.level|upper }}</span>
+            {% endif %}
+        </div>
+        {% if data.co_mentioned_tickers %}
+        <div style="margin-top: 0.4rem; display: flex; flex-wrap: wrap; gap: 0.3rem;">
+            {% for item in data.co_mentioned_tickers[:8] %}
+                <span class="ticker-tag">${{ item.ticker }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% if r.llm_summary %}
+        <p class="tweet-text" style="margin-top: 0.5rem; color: #8b949e;">{{ r.llm_summary[:200] }}{% if r.llm_summary|length > 200 %}…{% endif %}</p>
+        {% endif %}
+    </div>
+{% endfor %}
+{% endif %}
+{% endblock %}

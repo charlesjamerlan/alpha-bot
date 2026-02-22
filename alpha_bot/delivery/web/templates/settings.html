@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Alpha Bot - Settings{% endblock %}
+{% block content %}
+<h2>Settings</h2>
+
+{% if saved %}
+<div class="section-card" style="border-color: #238636;">
+    <p style="color: #3fb950;">Settings saved and applied.</p>
+</div>
+{% endif %}
+
+{% if error is defined and error %}
+<div class="section-card" style="border-color: #f85149;">
+    <p style="color: #f85149;">{{ error }}</p>
+</div>
+{% endif %}
+
+<form method="post" action="/settings" autocomplete="off">
+
+    {# --- Twitter Provider --- #}
+    <div class="section-card">
+        <h3>Twitter Data Provider</h3>
+        <p style="font-size: 0.85rem; color: #8b949e; margin-bottom: 0.8rem;">
+            Choose how to fetch tweet data. Twikit is free but uses your X login. The official API is more reliable but costs money.
+        </p>
+        <div style="display: flex; gap: 0.8rem; margin-bottom: 1rem;">
+            <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;
+                          background: {{ '#1f6feb22' if s.twitter_provider == 'twikit' else '#161b22' }};
+                          border: 1px solid {{ '#1f6feb' if s.twitter_provider == 'twikit' else '#30363d' }};
+                          padding: 0.6rem 1rem; border-radius: 8px; flex: 1;">
+                <input type="radio" name="twitter_provider" value="twikit"
+                       {{ 'checked' if s.twitter_provider == 'twikit' }}
+                       onchange="toggleProvider()">
+                <div>
+                    <strong style="color: #3fb950;">Twikit (Free)</strong>
+                    <div style="font-size: 0.8rem; color: #8b949e;">Scrapes via your X account login</div>
+                </div>
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;
+                          background: {{ '#1f6feb22' if s.twitter_provider == 'api' else '#161b22' }};
+                          border: 1px solid {{ '#1f6feb' if s.twitter_provider == 'api' else '#30363d' }};
+                          padding: 0.6rem 1rem; border-radius: 8px; flex: 1;">
+                <input type="radio" name="twitter_provider" value="api"
+                       {{ 'checked' if s.twitter_provider == 'api' }}
+                       onchange="toggleProvider()">
+                <div>
+                    <strong style="color: #d29922;">Official X API (Paid)</strong>
+                    <div style="font-size: 0.8rem; color: #8b949e;">Uses bearer token, pay-per-use</div>
+                </div>
+            </label>
+        </div>
+
+        {# Twikit credentials #}
+        <div id="twikit-fields" style="{{ '' if s.twitter_provider == 'twikit' else 'display:none;' }}">
+            <h3 style="margin-top: 0.5rem;">X Account Login</h3>
+            <p style="font-size: 0.8rem; color: #d29922; margin-bottom: 0.6rem;">
+                Tip: Use a burner/alt account, not your main.
+            </p>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label>Username</label>
+                    <input type="text" name="twitter_username" value="{{ s.twitter_username }}" placeholder="@handle">
+                </div>
+                <div class="form-field">
+                    <label>Email</label>
+                    <input type="email" name="twitter_email" value="{{ s.twitter_email }}" placeholder="email@example.com">
+                </div>
+                <div class="form-field">
+                    <label>Password</label>
+                    <input type="password" name="twitter_password" value="{{ s.twitter_password }}" placeholder="password">
+                </div>
+            </div>
+        </div>
+
+        {# API credentials #}
+        <div id="api-fields" style="{{ '' if s.twitter_provider == 'api' else 'display:none;' }}">
+            <h3 style="margin-top: 0.5rem;">X API Bearer Token</h3>
+            <div class="form-field" style="max-width: 600px;">
+                <label>Bearer Token</label>
+                <input type="password" name="twitter_bearer_token" value="{{ s.twitter_bearer_token }}" placeholder="AAAA...">
+            </div>
+        </div>
+    </div>
+
+    {# --- Research Tuning --- #}
+    <div class="section-card">
+        <h3>Research Settings</h3>
+        <div class="form-grid">
+            <div class="form-field">
+                <label>Tweets per search</label>
+                <input type="number" name="research_max_tweets" value="{{ s.research_max_tweets }}" min="10" max="100">
+            </div>
+            <div class="form-field">
+                <label>Smart money accounts to expand</label>
+                <input type="number" name="smart_money_expand_count" value="{{ s.smart_money_expand_count }}" min="0" max="20">
+            </div>
+            <div class="form-field">
+                <label>Alpha threshold</label>
+                <input type="number" name="alpha_threshold" value="{{ s.alpha_threshold }}" min="0" max="1" step="0.05">
+            </div>
+        </div>
+    </div>
+
+    {# --- LLM --- #}
+    <div class="section-card">
+        <h3>AI Summary (Optional)</h3>
+        <p style="font-size: 0.85rem; color: #8b949e; margin-bottom: 0.6rem;">
+            Add an Anthropic API key to get AI-powered research briefs. Leave blank to disable.
+        </p>
+        <div class="form-field" style="max-width: 600px;">
+            <label>Anthropic API Key</label>
+            <input type="password" name="anthropic_api_key" value="{{ s.anthropic_api_key }}" placeholder="sk-ant-...">
+        </div>
+    </div>
+
+    {# --- Telegram Bot --- #}
+    <div class="section-card">
+        <h3>Telegram Delivery (Optional)</h3>
+        <div class="form-grid">
+            <div class="form-field">
+                <label>Bot Token</label>
+                <input type="password" name="telegram_bot_token" value="{{ s.telegram_bot_token }}" placeholder="123456:ABC-DEF...">
+            </div>
+            <div class="form-field">
+                <label>Chat ID</label>
+                <input type="text" name="telegram_chat_id" value="{{ s.telegram_chat_id }}" placeholder="-1001234567890">
+            </div>
+        </div>
+    </div>
+
+    {# --- Telegram Group Monitoring --- #}
+    <div class="section-card">
+        <h3>Telegram Group Monitoring</h3>
+        <p style="font-size: 0.85rem; color: #8b949e; margin-bottom: 0.6rem;">
+            Monitor a Telegram group for ticker calls and analyze P/L. Get credentials at
+            <a href="https://my.telegram.org/apps" target="_blank" style="color: #58a6ff;">my.telegram.org/apps</a>.
+        </p>
+        <div class="form-grid">
+            <div class="form-field">
+                <label>API ID</label>
+                <input type="number" name="telegram_api_id" value="{{ s.telegram_api_id if s.telegram_api_id else '' }}" placeholder="12345678">
+            </div>
+            <div class="form-field">
+                <label>API Hash</label>
+                <input type="password" name="telegram_api_hash" value="{{ s.telegram_api_hash }}" placeholder="abcdef1234...">
+            </div>
+            <div class="form-field">
+                <label>Monitor Group</label>
+                <input type="text" name="telegram_monitor_group" value="{{ s.telegram_monitor_group }}" placeholder="group_username or -100123...">
+            </div>
+        </div>
+        <p style="font-size: 0.8rem; color: #8b949e; margin-top: 0.5rem;">
+            After saving, run <code>python setup_telethon.py</code> once to authenticate.
+        </p>
+    </div>
+
+    <button type="submit" class="save-btn">Save Settings</button>
+</form>
+
+<style>
+    .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 0.8rem;
+    }
+    .form-field { display: flex; flex-direction: column; gap: 0.3rem; }
+    .form-field label {
+        font-size: 0.8rem;
+        color: #8b949e;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .form-field input {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        color: #c9d1d9;
+        padding: 0.5rem 0.8rem;
+        border-radius: 6px;
+        font-size: 0.9rem;
+    }
+    .form-field input:focus {
+        outline: none;
+        border-color: #58a6ff;
+    }
+    .save-btn {
+        background: #238636;
+        color: #fff;
+        border: none;
+        padding: 0.7rem 2rem;
+        border-radius: 6px;
+        font-size: 1rem;
+        cursor: pointer;
+        margin-top: 0.5rem;
+        transition: background 0.2s;
+    }
+    .save-btn:hover { background: #2ea043; }
+</style>
+
+<script>
+function toggleProvider() {
+    const isTwikit = document.querySelector('input[name="twitter_provider"][value="twikit"]').checked;
+    document.getElementById('twikit-fields').style.display = isTwikit ? '' : 'none';
+    document.getElementById('api-fields').style.display = isTwikit ? 'none' : '';
+    // Update radio card styling
+    document.querySelectorAll('input[name="twitter_provider"]').forEach(radio => {
+        const label = radio.closest('label');
+        if (radio.checked) {
+            label.style.background = '#1f6feb22';
+            label.style.borderColor = '#1f6feb';
+        } else {
+            label.style.background = '#161b22';
+            label.style.borderColor = '#30363d';
+        }
+    });
+}
+</script>
+{% endblock %}

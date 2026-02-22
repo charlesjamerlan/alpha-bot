@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+*.db
+*.sqlite
+.venv/
+venv/
+.idea/
+.vscode/
+*.log
+twikit_cookies.json
+*.session
+alpha_bot_telethon.session

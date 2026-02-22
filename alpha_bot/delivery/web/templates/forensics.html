@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+{% block title %}Alpha Bot - Pump Forensics{% endblock %}
+{% block content %}
+<h2>Pump Forensics</h2>
+<p style="color: #8b949e; font-size: 0.9rem; margin-bottom: 1rem;">
+    Find tokens that pumped recently and analyze what social signals appeared before the move.
+</p>
+
+{# --- Scanner Controls --- #}
+<div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap;">
+    <a href="/forensics?timeframe=24h&min_gain={{ min_gain }}"
+       style="padding: 0.4rem 0.8rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem;
+              {{ 'background: #1f6feb; color: #fff;' if timeframe == '24h' else 'background: #21262d; color: #8b949e;' }}">
+        Top 24h Gainers
+    </a>
+    <a href="/forensics?timeframe=7d&min_gain={{ min_gain }}"
+       style="padding: 0.4rem 0.8rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem;
+              {{ 'background: #1f6feb; color: #fff;' if timeframe == '7d' else 'background: #21262d; color: #8b949e;' }}">
+        Top 7d Gainers
+    </a>
+    <span style="color: #484f58;">|</span>
+    <span style="font-size: 0.8rem; color: #8b949e;">Min gain:</span>
+    <a href="/forensics?timeframe={{ timeframe }}&min_gain=10"
+       style="padding: 0.3rem 0.5rem; border-radius: 4px; text-decoration: none; font-size: 0.8rem;
+              {{ 'background: #1f6feb; color: #fff;' if min_gain == 10 else 'background: #21262d; color: #8b949e;' }}">10%</a>
+    <a href="/forensics?timeframe={{ timeframe }}&min_gain=20"
+       style="padding: 0.3rem 0.5rem; border-radius: 4px; text-decoration: none; font-size: 0.8rem;
+              {{ 'background: #1f6feb; color: #fff;' if min_gain == 20 else 'background: #21262d; color: #8b949e;' }}">20%</a>
+    <a href="/forensics?timeframe={{ timeframe }}&min_gain=50"
+       style="padding: 0.3rem 0.5rem; border-radius: 4px; text-decoration: none; font-size: 0.8rem;
+              {{ 'background: #1f6feb; color: #fff;' if min_gain == 50 else 'background: #21262d; color: #8b949e;' }}">50%</a>
+    <a href="/forensics?timeframe={{ timeframe }}&min_gain=100"
+       style="padding: 0.3rem 0.5rem; border-radius: 4px; text-decoration: none; font-size: 0.8rem;
+              {{ 'background: #1f6feb; color: #fff;' if min_gain == 100 else 'background: #21262d; color: #8b949e;' }}">100%</a>
+</div>
+
+{% if error is defined and error %}
+<div class="section-card" style="border-color: #f85149;">
+    <p style="color: #f85149;">{{ error }}</p>
+</div>
+{% endif %}
+
+{# ==================== FORENSICS REPORT ==================== #}
+{% if report %}
+<div class="section-card" style="border-color: #58a6ff; margin-bottom: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
+        <h3 style="font-size: 1.2rem;">
+            ${{ report.ticker }} — Pump Forensics
+            <span style="font-size: 0.85rem; color: #8b949e; font-weight: 400; margin-left: 0.5rem;">{{ report.name }}</span>
+        </h3>
+    </div>
+
+    {# --- Price Action --- #}
+    <div class="stats-grid">
+        <div class="stat-box">
+            <div class="value">
+                {% if report.current_price < 1 %}${{ "%.6f"|format(report.current_price) }}
+                {% else %}${{ "{:,.2f}".format(report.current_price) }}{% endif %}
+            </div>
+            <div class="label">Current Price</div>
+        </div>
+        <div class="stat-box">
+            <div class="value" style="color: #3fb950;">{{ "%+.0f"|format(report.pump_magnitude_pct) }}%</div>
+            <div class="label">Pump Size</div>
+        </div>
+        <div class="stat-box">
+            <div class="value">
+                {% if report.pump_start_price < 1 %}${{ "%.6f"|format(report.pump_start_price) }}
+                {% else %}${{ "{:,.2f}".format(report.pump_start_price) }}{% endif %}
+            </div>
+            <div class="label">Pump Start</div>
+        </div>
+        <div class="stat-box">
+            <div class="value">
+                {% if report.pump_peak_price < 1 %}${{ "%.6f"|format(report.pump_peak_price) }}
+                {% else %}${{ "{:,.2f}".format(report.pump_peak_price) }}{% endif %}
+            </div>
+            <div class="label">Pump Peak</div>
+        </div>
+        {% if report.pump_start_time %}
+        <div class="stat-box">
+            <div class="value" style="font-size: 0.9rem;">{{ report.pump_start_time.strftime('%b %d %H:%M') }}</div>
+            <div class="label">Started</div>
+        </div>
+        {% endif %}
+        {% if report.pump_peak_time %}
+        <div class="stat-box">
+            <div class="value" style="font-size: 0.9rem;">{{ report.pump_peak_time.strftime('%b %d %H:%M') }}</div>
+            <div class="label">Peaked</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {# --- Signal Score --- #}
+    <div style="margin: 1rem 0; padding: 0.8rem 1rem; border-radius: 6px;
+                background: {{ '#23863622' if report.signal_score >= 0.5 else '#9e6a0322' if report.signal_score >= 0.3 else '#f8514922' }};
+                border-left: 4px solid {{ '#238636' if report.signal_score >= 0.5 else '#9e6a03' if report.signal_score >= 0.3 else '#f85149' }};">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong style="color: {{ '#3fb950' if report.signal_score >= 0.5 else '#d29922' if report.signal_score >= 0.3 else '#f85149' }};">
+                    Signal Score: {{ "%.0f"|format(report.signal_score * 100) }}/100
+                </strong>
+                <span style="font-size: 0.85rem; color: #8b949e; margin-left: 0.5rem;">
+                    {% if report.signal_score >= 0.7 %}Highly Predictable
+                    {% elif report.signal_score >= 0.5 %}Moderately Predictable
+                    {% elif report.signal_score >= 0.3 %}Weak Signals
+                    {% else %}Not Predictable
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+        <p style="font-size: 0.9rem; margin-top: 0.5rem; color: #c9d1d9;">{{ report.verdict }}</p>
+    </div>
+
+    {# --- Social Breakdown --- #}
+    {% if report.twitter_available %}
+    <div class="stats-grid" style="margin-top: 1rem;">
+        <div class="stat-box">
+            <div class="value">{{ report.total_tweets }}</div>
+            <div class="label">Total Tweets</div>
+        </div>
+        <div class="stat-box">
+            <div class="value" style="color: #3fb950;">{{ report.pre_pump_tweets }}</div>
+            <div class="label">Pre-Pump</div>
+        </div>
+        <div class="stat-box">
+            <div class="value" style="color: #d29922;">{{ report.during_pump_tweets }}</div>
+            <div class="label">During Pump</div>
+        </div>
+        <div class="stat-box">
+            <div class="value" style="color: #8b949e;">{{ report.post_pump_tweets }}</div>
+            <div class="label">Post-Pump</div>
+        </div>
+        {% if report.hours_early > 0 %}
+        <div class="stat-box">
+            <div class="value" style="color: #58a6ff;">{{ "%.1f"|format(report.hours_early) }}h</div>
+            <div class="label">Earliest Signal</div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# --- Early Mentioners (the alpha) --- #}
+    {% if report.early_mentioners %}
+    <div style="margin-top: 1rem;">
+        <h3>Early Signals (Pre-Pump Tweets)</h3>
+        <p style="font-size: 0.8rem; color: #8b949e; margin-bottom: 0.5rem;">
+            These accounts mentioned ${{ report.ticker }} BEFORE the pump started.
+        </p>
+        {% for s in report.early_mentioners[:8] %}
+        <div class="signal-card" style="margin-top: 0.5rem; border-left: 3px solid #238636;">
+            <div class="signal-header">
+                <div>
+                    <span class="author">@{{ s.author }}</span>
+                    <span style="font-size: 0.8rem; color: #8b949e; margin-left: 0.5rem;">
+                        {{ "{:,}".format(s.followers) }} followers
+                    </span>
+                </div>
+                <div style="display: flex; gap: 0.8rem; align-items: center;">
+                    <span style="font-size: 0.8rem; color: {{ '#3fb950' if s.sentiment > 0.2 else '#f85149' if s.sentiment < -0.2 else '#8b949e' }};">
+                        {% if s.sentiment > 0.2 %}Bullish{% elif s.sentiment < -0.2 %}Bearish{% else %}Neutral{% endif %}
+                    </span>
+                    <span style="font-size: 0.8rem; color: #8b949e;">
+                        {{ s.likes }} likes &middot; {{ s.retweets }} RTs
+                    </span>
+                    <span style="font-size: 0.75rem; color: #484f58;">
+                        {{ s.posted_at.strftime('%b %d %H:%M') }}
+                    </span>
+                </div>
+            </div>
+            <p class="tweet-text">{{ s.text[:280] }}{% if s.text|length > 280 %}…{% endif %}</p>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# --- All Signals Timeline --- #}
+    {% if report.all_signals %}
+    <div style="margin-top: 1rem;">
+        <h3>Full Timeline ({{ report.all_signals|length }} tweets)</h3>
+        <div style="max-height: 400px; overflow-y: auto;">
+            {% for s in report.all_signals %}
+            <div style="display: flex; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid #21262d; align-items: flex-start;">
+                <div style="min-width: 70px; font-size: 0.75rem; color: #484f58; padding-top: 0.1rem;">
+                    {{ s.posted_at.strftime('%b %d %H:%M') }}
+                </div>
+                <div style="min-width: 16px;">
+                    {% if s.phase == "pre_pump" %}
+                        <span style="color: #3fb950;" title="Pre-pump">&#9650;</span>
+                    {% elif s.phase == "during_pump" %}
+                        <span style="color: #d29922;" title="During pump">&#9654;</span>
+                    {% else %}
+                        <span style="color: #484f58;" title="Post-pump">&#9660;</span>
+                    {% endif %}
+                </div>
+                <div style="flex: 1; min-width: 0;">
+                    <span style="color: #58a6ff; font-size: 0.85rem;">@{{ s.author }}</span>
+                    <p style="font-size: 0.85rem; margin-top: 0.1rem; color: #8b949e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        {{ s.text[:150] }}{% if s.text|length > 150 %}…{% endif %}
+                    </p>
+                </div>
+                <div style="min-width: 50px; text-align: right; font-size: 0.8rem; color: #8b949e;">
+                    {{ s.likes }}♥ {{ s.retweets }}↻
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div style="margin-top: 0.5rem; font-size: 0.75rem; color: #484f58;">
+            <span style="color: #3fb950;">&#9650;</span> Pre-pump &nbsp;
+            <span style="color: #d29922;">&#9654;</span> During pump &nbsp;
+            <span style="color: #484f58;">&#9660;</span> Post-pump
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ==================== TOP GAINERS TABLE ==================== #}
+{% if gainers %}
+<div class="section-card">
+    <h3>Recent Pumps ({{ timeframe }} change > {{ min_gain|int }}%)</h3>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+            <thead>
+                <tr style="border-bottom: 1px solid #30363d; text-align: left;">
+                    <th style="padding: 0.5rem 0.3rem; color: #8b949e; font-size: 0.8rem;">TOKEN</th>
+                    <th style="padding: 0.5rem 0.3rem; color: #8b949e; font-size: 0.8rem;">PRICE</th>
+                    <th style="padding: 0.5rem 0.3rem; color: #8b949e; font-size: 0.8rem;">1H</th>
+                    <th style="padding: 0.5rem 0.3rem; color: #8b949e; font-size: 0.8rem;">24H</th>
+                    <th style="padding: 0.5rem 0.3rem; color: #8b949e; font-size: 0.8rem;">7D</th>
+                    <th style="padding: 0.5rem 0.3rem; color: #8b949e; font-size: 0.8rem;">MCAP</th>
+                    <th style="padding: 0.5rem 0.3rem; color: #8b949e; font-size: 0.8rem;">VOLUME</th>
+                    <th style="padding: 0.5rem 0.3rem;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for g in gainers %}
+                <tr style="border-bottom: 1px solid #21262d;">
+                    <td style="padding: 0.5rem 0.3rem;">
+                        <span class="ticker-tag">${{ g.symbol }}</span>
+                        <span style="font-size: 0.8rem; color: #8b949e; margin-left: 0.3rem;">{{ g.name }}</span>
+                    </td>
+                    <td style="padding: 0.5rem 0.3rem;">
+                        {% if g.current_price < 0.01 %}${{ "%.6f"|format(g.current_price) }}
+                        {% elif g.current_price < 1 %}${{ "%.4f"|format(g.current_price) }}
+                        {% else %}${{ "{:,.2f}".format(g.current_price) }}{% endif %}
+                    </td>
+                    <td style="padding: 0.5rem 0.3rem; color: {{ '#3fb950' if g.change_1h and g.change_1h >= 0 else '#f85149' }};">
+                        {% if g.change_1h is not none %}{{ "%+.1f"|format(g.change_1h) }}%{% else %}—{% endif %}
+                    </td>
+                    <td style="padding: 0.5rem 0.3rem; font-weight: 600; color: {{ '#3fb950' if g.change_24h and g.change_24h >= 0 else '#f85149' }};">
+                        {% if g.change_24h is not none %}{{ "%+.1f"|format(g.change_24h) }}%{% else %}—{% endif %}
+                    </td>
+                    <td style="padding: 0.5rem 0.3rem; color: {{ '#3fb950' if g.change_7d and g.change_7d >= 0 else '#f85149' }};">
+                        {% if g.change_7d is not none %}{{ "%+.1f"|format(g.change_7d) }}%{% else %}—{% endif %}
+                    </td>
+                    <td style="padding: 0.5rem 0.3rem; font-size: 0.85rem; color: #8b949e;">
+                        {% if g.market_cap >= 1000000000 %}${{ "%.1f"|format(g.market_cap / 1000000000) }}B
+                        {% elif g.market_cap >= 1000000 %}${{ "%.1f"|format(g.market_cap / 1000000) }}M
+                        {% else %}${{ "{:,.0f}".format(g.market_cap) }}{% endif %}
+                    </td>
+                    <td style="padding: 0.5rem 0.3rem; font-size: 0.85rem; color: #8b949e;">
+                        {% if g.volume_24h >= 1000000000 %}${{ "%.1f"|format(g.volume_24h / 1000000000) }}B
+                        {% elif g.volume_24h >= 1000000 %}${{ "%.1f"|format(g.volume_24h / 1000000) }}M
+                        {% else %}${{ "{:,.0f}".format(g.volume_24h) }}{% endif %}
+                    </td>
+                    <td style="padding: 0.5rem 0.3rem;">
+                        <form method="post" action="/forensics" style="display: inline;">
+                            <input type="hidden" name="ticker" value="{{ g.symbol }}">
+                            <input type="hidden" name="coin_id" value="{{ g.coin_id }}">
+                            <input type="hidden" name="timeframe" value="{{ timeframe }}">
+                            <input type="hidden" name="min_gain" value="{{ min_gain }}">
+                            <button type="submit" class="analyze-btn"
+                                    onclick="this.textContent='…'; this.disabled=true; this.form.submit();">
+                                Analyze
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% elif not error %}
+<div class="empty">
+    <p>No tokens found with {{ min_gain|int }}%+ gain in the last {{ timeframe }}.</p>
+    <p style="margin-top: 0.5rem; font-size: 0.85rem;">Try lowering the minimum gain threshold.</p>
+</div>
+{% endif %}
+
+{# --- Manual Analyze --- #}
+<div class="section-card" style="margin-top: 1rem;">
+    <h3>Analyze Any Token</h3>
+    <form method="post" action="/forensics" class="research-form" id="manual-form">
+        <input type="text" name="ticker" placeholder="$SOL, BTC, PEPE…" style="width: 200px;">
+        <input type="hidden" name="timeframe" value="{{ timeframe }}">
+        <input type="hidden" name="min_gain" value="{{ min_gain }}">
+        <button type="submit" onclick="this.textContent='Analyzing…'; this.disabled=true; document.getElementById('manual-form').submit();">
+            Analyze
+        </button>
+    </form>
+</div>
+
+{# --- Past Analyses --- #}
+{% if past_forensics is defined and past_forensics %}
+<h2 style="margin-top: 2rem;">Past Analyses</h2>
+{% for f in past_forensics %}
+<div class="section-card">
+    <div class="signal-header">
+        <div>
+            <span class="ticker-tag">${{ f.ticker }}</span>
+            <span style="margin-left: 0.5rem; font-weight: 600; color: #3fb950;">
+                {{ "%+.0f"|format(f.pump_magnitude) }}% pump
+            </span>
+            <span style="margin-left: 0.5rem; font-size: 0.85rem;
+                         color: {{ '#3fb950' if f.signal_score >= 0.5 else '#d29922' if f.signal_score >= 0.3 else '#f85149' }};">
+                Signal: {{ "%.0f"|format(f.signal_score * 100) }}/100
+            </span>
+            {% if f.pre_pump_tweets > 0 %}
+            <span style="margin-left: 0.5rem; font-size: 0.85rem; color: #8b949e;">
+                {{ f.pre_pump_tweets }} pre-pump tweets
+            </span>
+            {% endif %}
+        </div>
+        <span style="font-size: 0.8rem; color: #8b949e;">{{ f.created_at.strftime('%b %d, %H:%M') }}</span>
+    </div>
+    {% if f.verdict %}
+    <p style="font-size: 0.85rem; color: #8b949e; margin-top: 0.3rem;">{{ f.verdict[:200] }}{% if f.verdict|length > 200 %}…{% endif %}</p>
+    {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+<style>
+    .analyze-btn {
+        background: #1f6feb;
+        color: #fff;
+        border: none;
+        padding: 0.3rem 0.7rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: background 0.2s;
+        white-space: nowrap;
+    }
+    .analyze-btn:hover { background: #388bfd; }
+    .analyze-btn:disabled { opacity: 0.5; cursor: wait; }
+</style>
+{% endblock %}
