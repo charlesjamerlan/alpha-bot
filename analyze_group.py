@@ -131,8 +131,25 @@ async def run(group: str, days: int) -> None:
         print("Run: python setup_telethon.py")
         sys.exit(1)
 
-    print(f"Scraping {group} (last {days} days)...")
-    calls = await scrape_group_history(group, days_back=days)
+    # Support group/topic_id syntax (e.g. "2469811342/1")
+    topic_id = None
+    if "/" in str(group):
+        group_part, topic_part = str(group).rsplit("/", 1)
+        try:
+            topic_id = int(topic_part)
+            group = group_part
+        except ValueError:
+            pass
+
+    # Handle numeric group IDs
+    try:
+        group = int(group)
+    except ValueError:
+        pass
+
+    topic_label = f" topic {topic_id}" if topic_id else ""
+    print(f"Scraping {group}{topic_label} (last {days} days)...")
+    calls = await scrape_group_history(group, days_back=days, topic_id=topic_id)
 
     if not calls:
         print(f"No ticker calls found in {group} over the last {days} days.")
@@ -160,15 +177,7 @@ def main() -> None:
         help="Number of days to look back (default: 90)",
     )
     args = parser.parse_args()
-
-    # Handle numeric group IDs passed as strings
-    group = args.group
-    try:
-        group = int(group)
-    except ValueError:
-        pass
-
-    asyncio.run(run(group, args.days))
+    asyncio.run(run(args.group, args.days))
 
 
 if __name__ == "__main__":

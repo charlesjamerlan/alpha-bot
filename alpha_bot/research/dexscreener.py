@@ -23,7 +23,7 @@ class DexPricePoint:
 async def get_token_by_address(
     address: str, client: httpx.AsyncClient
 ) -> dict | None:
-    """Look up a token on DexScreener by Solana contract address.
+    """Look up a token on DexScreener by contract address (any chain).
 
     Returns the best (highest liquidity) pair info, or None.
     """
@@ -47,12 +47,21 @@ async def get_token_by_address(
 
 
 async def get_token_by_ticker(
-    ticker: str, client: httpx.AsyncClient
+    ticker: str, client: httpx.AsyncClient, chains: list[str] | None = None,
 ) -> dict | None:
     """Search DexScreener for a ticker symbol.
 
-    Returns the best Solana pair, or None.
+    Args:
+        ticker: Token ticker symbol.
+        client: httpx async client.
+        chains: List of chain IDs to filter by (e.g. ["solana", "base"]).
+                Defaults to ["solana", "base", "ethereum", "bsc"].
+
+    Returns the best matching pair, or None.
     """
+    if chains is None:
+        chains = ["solana", "base", "ethereum", "bsc"]
+
     try:
         resp = await client.get(
             f"{DEXSCREENER_BASE}/search",
@@ -65,18 +74,18 @@ async def get_token_by_ticker(
         return None
 
     pairs = data.get("pairs") or []
-    # Filter to Solana pairs matching the ticker
-    sol_pairs = [
+    # Filter to supported chains matching the ticker
+    matching = [
         p for p in pairs
-        if p.get("chainId") == "solana"
+        if p.get("chainId") in chains
         and p.get("baseToken", {}).get("symbol", "").upper() == ticker.upper()
     ]
 
-    if not sol_pairs:
+    if not matching:
         return None
 
     # Pick highest liquidity
-    return max(sol_pairs, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0)
+    return max(matching, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0)
 
 
 def extract_price_from_pair(pair: dict) -> float | None:
@@ -129,13 +138,23 @@ def extract_pair_details(pair: dict) -> dict:
 # --- GeckoTerminal (historical OHLCV) ---
 
 
+# Map DexScreener chainId to GeckoTerminal network slug
+_CHAIN_TO_GT_NETWORK = {
+    "solana": "solana",
+    "base": "base",
+    "ethereum": "eth",
+    "bsc": "bsc",
+}
+
+
 async def gt_find_pool(
-    token_address: str, client: httpx.AsyncClient
+    token_address: str, client: httpx.AsyncClient, chain: str = "solana",
 ) -> str | None:
-    """Find the best Solana pool address for a token via GeckoTerminal."""
+    """Find the best pool address for a token via GeckoTerminal."""
+    network = _CHAIN_TO_GT_NETWORK.get(chain, chain)
     try:
         resp = await client.get(
-            f"{GECKOTERMINAL_BASE}/networks/solana/tokens/{token_address}/pools",
+            f"{GECKOTERMINAL_BASE}/networks/{network}/tokens/{token_address}/pools",
             params={"page": 1},
             headers={"Accept": "application/json"},
         )
@@ -151,7 +170,7 @@ async def gt_find_pool(
 
     # First pool is typically highest volume
     pool_id = pools[0].get("id", "")
-    # id format: "solana_<pool_address>"
+    # id format: "<network>_<pool_address>"
     if "_" in pool_id:
         return pool_id.split("_", 1)[1]
     # fallback: try attributes.address
@@ -163,14 +182,16 @@ async def gt_get_ohlcv(
     client: httpx.AsyncClient,
     timeframe: str = "day",
     limit: int = 90,
+    chain: str = "solana",
 ) -> list[tuple[int, float]]:
     """Fetch historical OHLCV from GeckoTerminal.
 
     Returns list of (timestamp_unix, close_price_usd) sorted oldest first.
     """
+    network = _CHAIN_TO_GT_NETWORK.get(chain, chain)
     try:
         resp = await client.get(
-            f"{GECKOTERMINAL_BASE}/networks/solana/pools/{pool_address}/ohlcv/{timeframe}",
+            f"{GECKOTERMINAL_BASE}/networks/{network}/pools/{pool_address}/ohlcv/{timeframe}",
             params={"limit": limit, "currency": "usd"},
             headers={"Accept": "application/json"},
         )
@@ -203,6 +224,7 @@ async def gt_get_token_price_history(
     token_address: str,
     client: httpx.AsyncClient,
     days: int = 90,
+    chain: str = "solana",
 ) -> list[tuple[int, float]]:
     """Full pipeline: find pool -> get OHLCV for a token address.
 
@@ -213,23 +235,23 @@ async def gt_get_token_price_history(
 
     Returns list of (timestamp_seconds, close_price_usd).
     """
-    pool = await gt_find_pool(token_address, client)
+    pool = await gt_find_pool(token_address, client, chain=chain)
     if not pool:
         return []
 
     # For very new tokens (< 2 days), try minute candles first
     if days <= 2:
         prices = await gt_get_ohlcv(
-            pool, client, timeframe="minute", limit=1000
+            pool, client, timeframe="minute", limit=1000, chain=chain
         )
         if prices:
             return prices
 
     # Try hourly (up to 1000 candles = ~41 days)
     hour_limit = min(days * 24, 1000)
-    prices = await gt_get_ohlcv(pool, client, timeframe="hour", limit=hour_limit)
+    prices = await gt_get_ohlcv(pool, client, timeframe="hour", limit=hour_limit, chain=chain)
     if prices:
         return prices
 
     # Fallback to daily
-    return await gt_get_ohlcv(pool, client, timeframe="day", limit=days)
+    return await gt_get_ohlcv(pool, client, timeframe="day", limit=days, chain=chain)

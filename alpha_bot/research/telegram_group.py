@@ -25,10 +25,22 @@ QUICKSCOPE_RE = re.compile(
 # Pump.fun addresses end with "pump"
 SOL_CA_RE = re.compile(r"\b([1-9A-HJ-NP-Za-km-z]{32,44})\b")
 
-# DexScreener links: dexscreener.com/solana/<address>
+# EVM contract addresses — 0x + 40 hex chars (BASE, ETH, BSC, etc.)
+EVM_CA_RE = re.compile(r"\b(0x[0-9a-fA-F]{40})\b")
+
+# DexScreener links: dexscreener.com/<chain>/<address>
 DEXSCREENER_RE = re.compile(
     r"dexscreener\.com/solana/([1-9A-HJ-NP-Za-km-z]{32,44})"
 )
+DEXSCREENER_EVM_RE = re.compile(
+    r"dexscreener\.com/(base|ethereum|bsc)/(0x[0-9a-fA-F]{40})"
+)
+
+# Basescan links: basescan.org/token/0x...
+BASESCAN_RE = re.compile(r"basescan\.org/token/(0x[0-9a-fA-F]{40})")
+
+# Known EVM chain keywords that appear near addresses in messages
+_EVM_CHAIN_HINTS = {"base", "eth", "ethereum", "bsc", "binance"}
 
 SESSION_FILE = "alpha_bot_telethon"
 
@@ -114,24 +126,32 @@ def extract_tickers(text: str) -> list[str]:
 
 
 def extract_contract_addresses(text: str) -> list[str]:
-    """Extract Solana contract addresses from message text.
+    """Extract contract addresses from message text (Solana + EVM).
 
     Handles:
-    - Raw addresses (base58, 32-44 chars)
-    - DexScreener links
-    - pump.fun addresses
+    - Solana: Raw base58 addresses, pump.fun addresses, DexScreener /solana/ links
+    - EVM: 0x addresses (BASE/ETH/BSC), DexScreener /base/ links, Basescan links
     """
     addresses = set()
 
-    # DexScreener links
+    # DexScreener links (Solana)
     for addr in DEXSCREENER_RE.findall(text):
         addresses.add(addr)
 
-    # Raw addresses in text
+    # DexScreener links (EVM) — returns (chain, address) tuples
+    for _chain, addr in DEXSCREENER_EVM_RE.findall(text):
+        addresses.add(addr)
+
+    # Basescan links
+    for addr in BASESCAN_RE.findall(text):
+        addresses.add(addr)
+
+    # EVM addresses (0x...)
+    for addr in EVM_CA_RE.findall(text):
+        addresses.add(addr)
+
+    # Raw Solana addresses in text
     for addr in SOL_CA_RE.findall(text):
-        # Filter out things that are clearly not addresses:
-        # - Too short and all letters (likely a word)
-        # - URLs/domains
         if len(addr) < 30:
             continue
         # Skip if it looks like a URL component
@@ -140,7 +160,6 @@ def extract_contract_addresses(text: str) -> list[str]:
             for prefix in ["http", "://", ".com", ".gg", ".io"]
             if text.split(addr)[0]
         ):
-            # Only skip if it's part of a non-dex URL
             before = text.split(addr)[0]
             if "dexscreener" not in before and "pump" not in addr:
                 continue
@@ -149,12 +168,52 @@ def extract_contract_addresses(text: str) -> list[str]:
     return list(addresses)
 
 
+def detect_chain(address: str, message_text: str = "") -> str:
+    """Detect blockchain from address format and message context.
+
+    Returns: 'solana', 'base', 'ethereum', 'bsc', or 'unknown'.
+    """
+    # EVM address
+    if address.startswith("0x") and len(address) == 42:
+        lower = message_text.lower()
+        # Check DexScreener links for explicit chain
+        dex_match = DEXSCREENER_EVM_RE.search(message_text)
+        if dex_match:
+            chain = dex_match.group(1).lower()
+            if chain == "bsc":
+                return "bsc"
+            if chain == "ethereum":
+                return "ethereum"
+            return "base"
+        # Check basescan link
+        if "basescan" in lower:
+            return "base"
+        # Check text hints
+        if "base" in lower or "base chain" in lower:
+            return "base"
+        if "bsc" in lower or "binance" in lower or "pancake" in lower:
+            return "bsc"
+        if "ethereum" in lower or "uniswap" in lower:
+            return "ethereum"
+        # Default EVM to base (most common for memecoins right now)
+        return "base"
+
+    # Solana address (base58)
+    return "solana"
+
+
 async def scrape_group_history(
     group: str | int,
     days_back: int = 90,
+    topic_id: int | None = None,
 ) -> list[dict]:
     """
     Scrape a Telegram group's message history and extract ticker calls.
+
+    Args:
+        group: Group username or numeric ID.
+        days_back: How many days to look back.
+        topic_id: If set, only scrape messages from this forum topic/sub-channel.
 
     Returns list of dicts with keys:
         ticker, contract_address, message_id, message_text, posted_at, author
@@ -169,9 +228,15 @@ async def scrape_group_history(
     try:
         entity = await client.get_entity(group)
         title = getattr(entity, "title", group)
-        logger.info("Scraping group: %s (looking back %d days)", title, days_back)
+        topic_label = f" (topic {topic_id})" if topic_id else ""
+        logger.info("Scraping group: %s%s (looking back %d days)", title, topic_label, days_back)
 
-        async for msg in client.iter_messages(entity):
+        # Build iter_messages kwargs — reply_to filters by forum topic
+        iter_kwargs = {}
+        if topic_id is not None:
+            iter_kwargs["reply_to"] = topic_id
+
+        async for msg in client.iter_messages(entity, **iter_kwargs):
             if msg.date.replace(tzinfo=timezone.utc) < cutoff:
                 break
 
@@ -199,6 +264,7 @@ async def scrape_group_history(
             # Ticker-only mentions without a CA are often just casual chatter.
             if contract_addresses:
                 ca = contract_addresses[0]
+                chain = detect_chain(ca, msg.text)
                 if tickers:
                     # CA + ticker name (best case: "bought $TEDDY ... AdJSR8...pump")
                     for ticker in tickers:
@@ -206,6 +272,7 @@ async def scrape_group_history(
                             {
                                 "ticker": ticker,
                                 "contract_address": ca,
+                                "chain": chain,
                                 "message_id": msg.id,
                                 "message_text": msg.text[:500],
                                 "posted_at": posted_at,
@@ -219,6 +286,7 @@ async def scrape_group_history(
                             {
                                 "ticker": addr[:8] + "...",
                                 "contract_address": addr,
+                                "chain": detect_chain(addr, msg.text),
                                 "message_id": msg.id,
                                 "message_text": msg.text[:500],
                                 "posted_at": posted_at,

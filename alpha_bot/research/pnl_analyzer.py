@@ -298,8 +298,17 @@ async def analyze_pnl(
                         if age_hours < 48:
                             gt_days = 2  # triggers minute candles in gt_get_token_price_history
 
+                        # Detect chain from call data or address format
+                        call_chain = "solana"
+                        for c in tcalls:
+                            if c.get("chain"):
+                                call_chain = c["chain"]
+                                break
+                        if ca.startswith("0x"):
+                            call_chain = call_chain if call_chain != "solana" else "base"
+
                         gt_prices = await gt_get_token_price_history(
-                            ca, client, days=gt_days
+                            ca, client, days=gt_days, chain=call_chain,
                         )
                         if gt_prices:
                             # GeckoTerminal returns (timestamp_sec, price)

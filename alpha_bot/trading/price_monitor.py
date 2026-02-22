@@ -55,26 +55,24 @@ async def _get_dexscreener_price(
 
 
 async def get_token_prices(mints: list[str]) -> dict[str, float]:
-    """Batch fetch prices — Jupiter first, DexScreener fallback for misses."""
+    """Batch fetch prices — DexScreener primary, Jupiter as fallback."""
     if not mints:
         return {}
 
     async with httpx.AsyncClient(timeout=15) as client:
-        prices = await _get_jupiter_prices(mints, client)
+        # DexScreener as primary (Jupiter now requires API key)
+        prices: dict[str, float] = {}
+        for mint in mints:
+            price = await _get_dexscreener_price(mint, client)
+            if price is not None:
+                prices[mint] = price
+            await asyncio.sleep(0.3)  # DexScreener rate limit
 
-        # DexScreener fallback for tokens Jupiter doesn't index
+        # Jupiter fallback for any misses
         missing = [m for m in mints if m not in prices]
         if missing:
-            logger.debug(
-                "Jupiter missing %d tokens, trying DexScreener: %s",
-                len(missing),
-                [m[:8] for m in missing],
-            )
-            for mint in missing:
-                price = await _get_dexscreener_price(mint, client)
-                if price is not None:
-                    prices[mint] = price
-                await asyncio.sleep(0.3)  # DexScreener rate limit
+            jup_prices = await _get_jupiter_prices(missing, client)
+            prices.update(jup_prices)
 
     return prices
 

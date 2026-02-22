@@ -1,12 +1,14 @@
 """Real-time TG group listener — detects signals and triggers buys."""
 
 import logging
+from dataclasses import dataclass
 
 from telethon import TelegramClient, events
 
 from alpha_bot.config import settings
 from alpha_bot.research.telegram_group import (
     SESSION_FILE,
+    detect_chain,
     extract_contract_addresses,
     extract_tickers,
 )
@@ -16,22 +18,48 @@ from alpha_bot.trading.position_manager import handle_signal
 logger = logging.getLogger(__name__)
 
 
-def _parse_monitor_groups() -> list[str | int]:
-    """Parse comma-separated group list from config."""
+@dataclass
+class MonitorTarget:
+    """A group (and optional topic) to monitor."""
+    group: str | int          # username or numeric ID
+    topic_id: int | None = None  # forum topic ID, None = all topics
+
+
+def _parse_monitor_groups() -> list[MonitorTarget]:
+    """Parse comma-separated group list from config.
+
+    Formats supported:
+      - groupname                    (all messages)
+      - groupname/topic_id           (specific forum topic only)
+      - 2469811342/1                 (numeric group ID + topic)
+      - blessedmemecalls,sailboat/1  (mixed)
+    """
     raw = settings.telegram_monitor_groups
     if not raw:
         return []
-    groups = []
-    for g in raw.split(","):
-        g = g.strip()
-        if not g:
+    targets = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
             continue
-        # Numeric IDs
+
+        topic_id = None
+        if "/" in entry:
+            group_part, topic_part = entry.rsplit("/", 1)
+            try:
+                topic_id = int(topic_part)
+            except ValueError:
+                group_part = entry  # not a valid topic, treat whole thing as group name
+            entry = group_part
+
+        # Numeric group IDs
         try:
-            groups.append(int(g))
+            group = int(entry)
         except ValueError:
-            groups.append(g)
-    return groups
+            group = entry
+
+        targets.append(MonitorTarget(group=group, topic_id=topic_id))
+    return targets
 
 
 async def start_listener(telethon_client: TelegramClient) -> None:
@@ -40,25 +68,40 @@ async def start_listener(telethon_client: TelegramClient) -> None:
     Monitors configured groups for messages containing Solana contract addresses,
     parses them into TradeSignals, and calls handle_signal() for each.
     """
-    groups = _parse_monitor_groups()
-    if not groups:
+    targets = _parse_monitor_groups()
+    if not targets:
         logger.warning(
             "No monitor groups configured (TELEGRAM_MONITOR_GROUPS is empty)"
         )
         return
 
-    logger.info("Starting TG listener for groups: %s", groups)
+    logger.info("Starting TG listener for groups: %s", targets)
 
-    # Resolve group entities
+    # Resolve group entities and build topic filter map
     entities = []
-    for g in groups:
+    # Map: entity_id -> set of allowed topic IDs (None = all topics)
+    topic_filter: dict[int, set[int] | None] = {}
+
+    for target in targets:
         try:
-            entity = await telethon_client.get_entity(g)
-            title = getattr(entity, "title", g)
+            entity = await telethon_client.get_entity(target.group)
+            title = getattr(entity, "title", target.group)
             entities.append(entity)
-            logger.info("Monitoring group: %s", title)
+
+            eid = entity.id
+            if target.topic_id is not None:
+                # Add specific topic filter
+                if eid not in topic_filter:
+                    topic_filter[eid] = set()
+                if topic_filter[eid] is not None:
+                    topic_filter[eid].add(target.topic_id)
+                logger.info("Monitoring group: %s (topic %d)", title, target.topic_id)
+            else:
+                # All topics — overrides any specific topic filters
+                topic_filter[eid] = None
+                logger.info("Monitoring group: %s (all topics)", title)
         except Exception as exc:
-            logger.error("Failed to resolve group %s: %s", g, exc)
+            logger.error("Failed to resolve group %s: %s", target.group, exc)
 
     if not entities:
         logger.error("No valid groups to monitor — listener not started")
@@ -70,6 +113,22 @@ async def start_listener(telethon_client: TelegramClient) -> None:
         text = event.message.text
         if not text:
             return
+
+        # Topic filtering for forum groups
+        chat_id = event.message.chat_id
+        allowed_topics = topic_filter.get(chat_id)
+        if allowed_topics is not None:
+            # We have specific topic filters for this group
+            msg_topic_id = None
+            reply_to = event.message.reply_to
+            if reply_to and hasattr(reply_to, "forum_topic") and reply_to.forum_topic:
+                msg_topic_id = reply_to.reply_to_msg_id
+            # General topic (topic_id=1) messages may not have reply_to
+            if msg_topic_id is None:
+                msg_topic_id = 1  # default = General topic
+
+            if msg_topic_id not in allowed_topics:
+                return
 
         # Extract contract addresses (primary signal)
         addresses = extract_contract_addresses(text)
@@ -98,11 +157,12 @@ async def start_listener(telethon_client: TelegramClient) -> None:
         # Build a signal for the first CA found
         ca = addresses[0]
         ticker = tickers[0] if tickers else ""
+        chain = detect_chain(ca, text)
 
         signal = TradeSignal(
             token_mint=ca,
             ticker=ticker,
-            chain="solana",
+            chain=chain,
             source_group=group_name,
             source_message_id=event.message.id,
             source_message_text=text[:500],

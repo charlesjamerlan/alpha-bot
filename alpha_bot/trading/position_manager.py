@@ -229,25 +229,11 @@ async def _execute_sell(
 
 
 async def _fetch_price(token_mint: str) -> float:
-    """Fetch current price — Jupiter first, DexScreener fallback."""
+    """Fetch current price — DexScreener first, Jupiter fallback."""
     import httpx
 
     async with httpx.AsyncClient(timeout=10) as client:
-        # Try Jupiter first
-        try:
-            resp = await client.get(
-                "https://api.jup.ag/price/v2",
-                params={"ids": token_mint},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            price_data = data.get("data", {}).get(token_mint)
-            if price_data and price_data.get("price"):
-                return float(price_data["price"])
-        except Exception as exc:
-            logger.debug("Jupiter price failed for %s: %s", token_mint[:8], exc)
-
-        # Fallback: DexScreener
+        # DexScreener primary (Jupiter now requires API key)
         try:
             resp = await client.get(
                 f"https://api.dexscreener.com/latest/dex/tokens/{token_mint}"
@@ -262,6 +248,20 @@ async def _fetch_price(token_mint: str) -> float:
                 if price:
                     return float(price)
         except Exception as exc:
-            logger.warning("DexScreener price failed for %s: %s", token_mint[:8], exc)
+            logger.debug("DexScreener price failed for %s: %s", token_mint[:8], exc)
+
+        # Fallback: Jupiter
+        try:
+            resp = await client.get(
+                "https://api.jup.ag/price/v2",
+                params={"ids": token_mint},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            price_data = data.get("data", {}).get(token_mint)
+            if price_data and price_data.get("price"):
+                return float(price_data["price"])
+        except Exception as exc:
+            logger.debug("Jupiter price failed for %s: %s", token_mint[:8], exc)
 
     return 0.0
