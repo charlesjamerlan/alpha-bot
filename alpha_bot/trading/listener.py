@@ -177,7 +177,25 @@ async def start_listener(telethon_client: TelegramClient) -> None:
             sender_name,
         )
 
-        await handle_signal(signal, telethon_client)
+        # Record call outcome for TG intelligence scoring (fire-and-forget)
+        try:
+            from alpha_bot.tg_intel.recorder import record_call
+            await record_call(
+                ca=ca,
+                chain=chain,
+                ticker=ticker,
+                channel_id=str(event.message.chat_id),
+                channel_name=group_name,
+                message_id=event.message.id,
+                message_text=text[:500],
+                author=sender_name,
+                mention_timestamp=event.message.date.replace(tzinfo=None),
+            )
+        except Exception as exc:
+            logger.warning("Failed to record call outcome: %s", exc)
+
+        if settings.trading_enabled:
+            await handle_signal(signal, telethon_client)
 
     # Keep listening until disconnected
     logger.info("TG listener active — waiting for messages")

@@ -113,14 +113,12 @@ async def main() -> None:
     )
     server = uvicorn.Server(config)
 
-    # --- Auto-Trading (Maestro integration) ---
+    # --- Telethon client (TG group monitoring + trading) ---
     telethon_client = None
-    if settings.trading_enabled and is_telethon_configured() and has_telethon_session():
+    if is_telethon_configured() and has_telethon_session():
         from telethon import TelegramClient
         from alpha_bot.research.telegram_group import SESSION_FILE
         from alpha_bot.trading.listener import start_listener
-        from alpha_bot.trading.position_manager import set_notify_fn
-        from alpha_bot.trading.price_monitor import price_monitor_loop
 
         telethon_client = TelegramClient(
             SESSION_FILE,
@@ -128,21 +126,22 @@ async def main() -> None:
             settings.telegram_api_hash,
         )
         await telethon_client.start()
-        logger.info("Telethon client started for auto-trading")
+        logger.info("Telethon client started for TG monitoring")
 
-        # Wire notification callback to TG bot
-        if delivery:
+        # Wire trading notifications
+        if settings.trading_enabled and delivery:
+            from alpha_bot.trading.position_manager import set_notify_fn
             set_notify_fn(delivery.send_text)
-
-    # Wire convergence notifications (works even without trading enabled)
-    if delivery:
-        from alpha_bot.tg_intel.convergence import set_notify_fn as set_convergence_notify
-        set_convergence_notify(delivery.send_text)
     elif settings.trading_enabled:
         logger.warning(
             "Trading enabled but Telethon not configured/no session — "
             "run setup_telethon.py first"
         )
+
+    # Wire convergence notifications (works even without trading enabled)
+    if delivery:
+        from alpha_bot.tg_intel.convergence import set_notify_fn as set_convergence_notify
+        set_convergence_notify(delivery.send_text)
 
     # Share telethon client with TG bot commands (/buy, /sell)
     if tg_app is not None and telethon_client is not None:
@@ -172,13 +171,18 @@ async def main() -> None:
 
         tasks.append(run_telegram())
 
-    # Trading tasks (only if enabled and telethon is ready)
-    if settings.trading_enabled and telethon_client is not None:
+    # TG listener (always runs when Telethon is ready — records calls + convergence)
+    if telethon_client is not None:
         tasks.append(start_listener(telethon_client))
-        tasks.append(price_monitor_loop(telethon_client))
         logger.info(
-            "Auto-trading ENABLED — monitoring groups: %s",
+            "TG listener active — monitoring groups: %s",
             settings.telegram_monitor_groups or "(none)",
         )
+
+    # Price monitor (only when trading is enabled)
+    if settings.trading_enabled and telethon_client is not None:
+        from alpha_bot.trading.price_monitor import price_monitor_loop
+        tasks.append(price_monitor_loop(telethon_client))
+        logger.info("Auto-trading ENABLED")
 
     await asyncio.gather(*tasks)
