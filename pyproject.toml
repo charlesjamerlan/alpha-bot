@@ -23,6 +23,7 @@ dependencies = [
     "anthropic>=0.42",
     "twikit>=2.3",
     "telethon>=1.36",
+    "pytrends>=4.9",
 ]
 
 [project.optional-dependencies]

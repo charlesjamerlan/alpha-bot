@@ -89,6 +89,8 @@ class TelegramDelivery(DeliveryChannel):
         self._app.add_handler(CommandHandler("channels", self._cmd_channels))
         self._app.add_handler(CommandHandler("convergence", self._cmd_convergence))
         self._app.add_handler(CommandHandler("profile", self._cmd_profile))
+        self._app.add_handler(CommandHandler("trends", self._cmd_trends))
+        self._app.add_handler(CommandHandler("scan", self._cmd_scan))
         return self._app
 
     @staticmethod
@@ -102,6 +104,9 @@ class TelegramDelivery(DeliveryChannel):
             "/channels — TG channel quality rankings\n"
             "/convergence — Recent cross-channel convergences\n"
             "/profile — Winning call profile (Mode 2)\n\n"
+            "<b>Scanner:</b>\n"
+            "/trends — Current trending themes\n"
+            "/scan &lt;CA&gt; — Full scanner score breakdown\n\n"
             "<b>Trading:</b>\n"
             "/positions — List open positions\n"
             "/buy &lt;CA&gt; — Manual buy via Maestro\n"
@@ -122,6 +127,9 @@ class TelegramDelivery(DeliveryChannel):
             "<code>/channels</code> — Show channel quality rankings\n"
             "<code>/convergence</code> — Recent cross-channel signals\n"
             "<code>/profile</code> — Winning call profile (Mode 2)\n\n"
+            "<b>Scanner:</b>\n"
+            "<code>/trends</code> — Current trending themes\n"
+            "<code>/scan CA_ADDRESS</code> — Full scanner score for a token\n\n"
             "<b>Trading:</b>\n"
             "<code>/positions</code> — Show open positions with P/L\n"
             "<code>/buy CA_ADDRESS</code> — Send buy to Maestro bot\n"
@@ -553,6 +561,170 @@ class TelegramDelivery(DeliveryChannel):
             logger.exception("Profile command failed")
             await update.message.reply_text(
                 f"Failed: {exc}", parse_mode="HTML"
+            )
+
+
+    @staticmethod
+    async def _cmd_trends(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        try:
+            from sqlalchemy import select as sa_select
+            from alpha_bot.scanner.models import TrendingTheme
+
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(TrendingTheme)
+                    .order_by(TrendingTheme.velocity.desc())
+                    .limit(20)
+                )
+                themes = list(result.scalars().all())
+
+            if not themes:
+                await update.message.reply_text(
+                    "No trending themes yet.\n"
+                    "Enable the scanner with <code>SCANNER_ENABLED=true</code>.",
+                    parse_mode="HTML",
+                )
+                return
+
+            lines = [f"<b>Trending Themes ({len(themes)})</b>\n"]
+            by_source: dict[str, list] = {}
+            for t in themes:
+                by_source.setdefault(t.source, []).append(t)
+
+            for source, items in by_source.items():
+                lines.append(f"\n<b>{source.upper()}</b>")
+                for t in items[:5]:
+                    vel = f"+{t.velocity:.0f}%" if t.velocity > 0 else f"{t.velocity:.0f}%"
+                    vol = f" (vol: {t.current_volume})" if t.current_volume else ""
+                    lines.append(f"  {t.theme[:60]} — {vel}{vol}")
+
+            text = "\n".join(lines)
+            for i in range(0, len(text), 4000):
+                await update.message.reply_text(
+                    text[i : i + 4000], parse_mode="HTML"
+                )
+        except Exception as exc:
+            logger.exception("Trends command failed")
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_scan(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: <code>/scan CONTRACT_ADDRESS</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        ca = context.args[0].strip()
+        await update.message.reply_text(
+            f"Scanning <code>{ca[:16]}...</code>",
+            parse_mode="HTML",
+        )
+
+        try:
+            # Fetch token data from DexScreener
+            async with httpx.AsyncClient(timeout=15) as client:
+                pair = await get_token_by_address(ca, client)
+
+            if not pair:
+                await update.message.reply_text(
+                    f"No token found for <code>{ca[:16]}...</code>",
+                    parse_mode="HTML",
+                )
+                return
+
+            d = extract_pair_details(pair)
+            from alpha_bot.tg_intel.platform_detect import detect_platform
+
+            token = {
+                "ca": ca,
+                "chain": pair.get("chainId", "base"),
+                "ticker": d["symbol"],
+                "name": d["name"],
+                "price_usd": d["price_usd"],
+                "mcap": d["market_cap"],
+                "liquidity_usd": d["liquidity_usd"],
+                "volume_24h": d["volume_24h"],
+                "pair_age_hours": None,
+                "platform": detect_platform(ca, pair_data=pair),
+                "discovery_source": "manual",
+            }
+
+            # Load themes
+            from sqlalchemy import select as sa_select
+            from alpha_bot.scanner.models import TrendingTheme
+
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(TrendingTheme)
+                    .order_by(TrendingTheme.velocity.desc())
+                    .limit(100)
+                )
+                themes = list(result.scalars().all())
+
+            # Run matching pipeline
+            from alpha_bot.scanner.token_matcher import match_token_to_themes
+            from alpha_bot.scanner.depth_scorer import compute_depth
+            from alpha_bot.scanner.candidate_scorer import (
+                compute_profile_match,
+                compute_market_score,
+                compute_composite,
+            )
+
+            matched_names, nar_score = await match_token_to_themes(
+                d["name"], d["symbol"], themes,
+            )
+            depth = compute_depth(
+                d["name"], d["symbol"], matched_names, themes,
+                platform=token["platform"],
+            )
+            token["_matched_themes"] = matched_names
+            prof_score = compute_profile_match(token, None)
+
+            # Try loading winning profile
+            try:
+                from alpha_bot.tg_intel.pattern_extract import extract_winning_profile
+                profile = await extract_winning_profile()
+                if profile:
+                    prof_score = compute_profile_match(token, profile)
+            except Exception:
+                pass
+
+            mkt_score = compute_market_score(token)
+            composite, tier = compute_composite(
+                nar_score, depth, prof_score, mkt_score, "manual",
+            )
+
+            tier_emoji = {1: "\U0001f534", 2: "\U0001f7e1", 3: "\U0001f7e2"}.get(tier, "\u26ab")
+            themes_str = ", ".join(f'"{t}"' for t in matched_names[:3]) if matched_names else "none"
+
+            text = (
+                f"{tier_emoji} <b>SCAN: ${d['symbol']}</b> ({d['name']})\n\n"
+                f"Score: <b>{composite:.0f}/100</b> (Tier {tier})\n"
+                f"Chain: {token['chain']} | Platform: {token['platform']}\n\n"
+                f"<b>Breakdown:</b>\n"
+                f"  Narrative: {nar_score:.0f}/100 — {themes_str}\n"
+                f"  Depth: {depth}/100 ({depth // 25} layers)\n"
+                f"  Profile match: {prof_score:.0f}/100\n"
+                f"  Market quality: {mkt_score:.0f}/100\n\n"
+                f"MCap: {_fmt_mcap(d['market_cap'])} | Liq: {_fmt_mcap(d['liquidity_usd'])}\n"
+                f"Vol 24h: {_fmt_mcap(d['volume_24h'])}\n\n"
+                f"<code>{ca}</code>"
+            )
+
+            await update.message.reply_text(text, parse_mode="HTML")
+
+        except Exception as exc:
+            logger.exception("Scan command failed for %s", ca[:12])
+            await update.message.reply_text(
+                f"Scan failed: {exc}", parse_mode="HTML"
             )
 
 

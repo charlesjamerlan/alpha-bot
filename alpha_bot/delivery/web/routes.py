@@ -347,6 +347,106 @@ async def api_pnl_analyses(db: AsyncSession = Depends(get_db), limit: int = 10):
     ]
 
 
+# --- Scanner (Phase 1) ---
+
+
+@router.get("/scanner", response_class=HTMLResponse)
+async def scanner_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    tier: str | None = None,
+):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.scanner.models import TrendingTheme, ScannerCandidate
+
+    # Themes
+    themes_result = await db.execute(
+        sa_select(TrendingTheme).order_by(TrendingTheme.velocity.desc()).limit(30)
+    )
+    themes = list(themes_result.scalars().all())
+
+    # Candidates
+    query = sa_select(ScannerCandidate).order_by(ScannerCandidate.composite_score.desc()).limit(50)
+    if tier:
+        try:
+            query = query.where(ScannerCandidate.tier == int(tier))
+        except ValueError:
+            pass
+    cands_result = await db.execute(query)
+    candidates = list(cands_result.scalars().all())
+
+    return templates.TemplateResponse(
+        "scanner.html",
+        {
+            "request": request,
+            "themes": themes,
+            "candidates": candidates,
+            "tier_filter": tier,
+        },
+    )
+
+
+@router.get("/api/scanner/themes")
+async def api_scanner_themes(db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.scanner.models import TrendingTheme
+
+    result = await db.execute(
+        sa_select(TrendingTheme).order_by(TrendingTheme.velocity.desc()).limit(50)
+    )
+    themes = list(result.scalars().all())
+    return [
+        {
+            "source": t.source,
+            "theme": t.theme,
+            "velocity": t.velocity,
+            "volume": t.current_volume,
+            "category": t.category,
+            "first_seen": t.first_seen.isoformat() if t.first_seen else None,
+            "last_updated": t.last_updated.isoformat() if t.last_updated else None,
+        }
+        for t in themes
+    ]
+
+
+@router.get("/api/scanner/candidates")
+async def api_scanner_candidates(
+    db: AsyncSession = Depends(get_db),
+    tier: int | None = None,
+    limit: int = 50,
+):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.scanner.models import ScannerCandidate
+
+    query = sa_select(ScannerCandidate).order_by(ScannerCandidate.composite_score.desc()).limit(limit)
+    if tier is not None:
+        query = query.where(ScannerCandidate.tier == tier)
+    result = await db.execute(query)
+    candidates = list(result.scalars().all())
+    return [
+        {
+            "ca": c.ca,
+            "chain": c.chain,
+            "ticker": c.ticker,
+            "name": c.name,
+            "platform": c.platform,
+            "composite_score": c.composite_score,
+            "tier": c.tier,
+            "narrative_score": c.narrative_score,
+            "narrative_depth": c.narrative_depth,
+            "profile_match_score": c.profile_match_score,
+            "market_score": c.market_score,
+            "matched_themes": c.matched_themes,
+            "mcap": c.mcap,
+            "liquidity_usd": c.liquidity_usd,
+            "volume_24h": c.volume_24h,
+            "discovery_source": c.discovery_source,
+            "discovered_at": c.discovered_at.isoformat() if c.discovered_at else None,
+        }
+        for c in candidates
+    ]
+
+
 # --- Settings ---
 
 # Fields we allow editing from the UI

@@ -79,5 +79,19 @@ class Settings(BaseSettings):
     convergence_window_hours: int = 2
     convergence_min_channels: int = 2
 
+    # Scanner — Phase 1: Narrative Radar + Active Scanner
+    scanner_enabled: bool = False
+    trend_poll_interval_seconds: int = 1800  # 30 min
+    scanner_poll_interval_seconds: int = 300  # 5 min
+    scanner_chain_filter: str = "base"
+    scanner_tier1_threshold: float = 75.0
+    scanner_tier2_threshold: float = 50.0
+    scanner_min_mcap: float = 10_000.0
+    scanner_max_mcap: float = 10_000_000.0
+    scanner_min_liquidity: float = 5_000.0
+    digest_hour_utc: int = 9
+    scanner_use_claude_matching: bool = True
+    neynar_api_key: str = ""
+
 
 settings = Settings()

@@ -14,6 +14,7 @@ from alpha_bot.scoring.scorer import CompositeScorer
 from alpha_bot.storage.database import async_session, init_db
 from alpha_bot.storage.models import Signal, Tweet
 import alpha_bot.tg_intel.models  # noqa: F401 — register CallOutcome/ChannelScore with Base
+import alpha_bot.scanner.models  # noqa: F401 — register TrendingTheme/ScannerCandidate with Base
 from alpha_bot.storage.repository import save_signal, save_tweet, tweet_exists
 from alpha_bot.utils.logging import setup_logging
 
@@ -197,5 +198,24 @@ async def main() -> None:
         from alpha_bot.trading.price_monitor import price_monitor_loop
         tasks.append(price_monitor_loop(telethon_client))
         logger.info("Auto-trading ENABLED")
+
+    # Scanner (Phase 1: Narrative Radar + Active Scanner)
+    if settings.scanner_enabled:
+        from alpha_bot.scanner.alerts import set_notify_fn as set_scanner_notify
+        from alpha_bot.scanner.daily_digest import daily_digest_loop
+        from alpha_bot.scanner.scanner_loop import scanner_loop
+        from alpha_bot.scanner.trend_tracker import trend_tracker_loop
+
+        if delivery:
+            set_scanner_notify(delivery.send_text)
+
+        tasks.append(trend_tracker_loop())
+        tasks.append(scanner_loop())
+        tasks.append(daily_digest_loop())
+        logger.info("Scanner ENABLED (trend poll=%ds, scan poll=%ds)",
+                     settings.trend_poll_interval_seconds,
+                     settings.scanner_poll_interval_seconds)
+    else:
+        logger.info("Scanner disabled — set SCANNER_ENABLED=true to activate")
 
     await asyncio.gather(*tasks)
