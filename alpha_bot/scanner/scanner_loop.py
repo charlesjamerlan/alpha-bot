@@ -130,10 +130,37 @@ async def scanner_loop() -> None:
                 # Market quality
                 mkt_score = compute_market_score(token)
 
+                # Platform percentile (Phase 2)
+                platform_score = 0.0
+                token_platform = token.get("platform", "unknown")
+                if token_platform in ("clanker", "virtuals", "flaunch"):
+                    try:
+                        from alpha_bot.platform_intel.percentile_rank import (
+                            compute_platform_percentile,
+                        )
+                        pct = await compute_platform_percentile(
+                            ca, token_platform, token.get("mcap"),
+                            None, token.get("volume_24h"),
+                            token.get("pair_age_hours"),
+                        )
+                        platform_score = pct.get("overall_percentile", 0.0)
+                    except Exception as exc:
+                        logger.debug("Platform percentile failed for %s: %s", ca[:12], exc)
+
+                    # Ingest into platform_tokens if not already there
+                    try:
+                        from alpha_bot.platform_intel.platform_ingest import (
+                            maybe_ingest_platform_token,
+                        )
+                        await maybe_ingest_platform_token(ca, token_platform, token)
+                    except Exception as exc:
+                        logger.debug("Platform ingest failed for %s: %s", ca[:12], exc)
+
                 # Composite
                 composite, tier = compute_composite(
                     nar_score, depth, prof_score, mkt_score,
                     token.get("discovery_source", ""),
+                    platform_score=platform_score,
                 )
 
                 now = datetime.utcnow()
@@ -147,6 +174,7 @@ async def scanner_loop() -> None:
                     narrative_depth=depth,
                     profile_match_score=prof_score,
                     market_score=mkt_score,
+                    platform_percentile=platform_score,
                     composite_score=composite,
                     matched_themes=json.dumps(matched_names),
                     price_usd=token.get("price_usd"),

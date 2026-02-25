@@ -436,6 +436,7 @@ async def api_scanner_candidates(
             "narrative_depth": c.narrative_depth,
             "profile_match_score": c.profile_match_score,
             "market_score": c.market_score,
+            "platform_percentile": c.platform_percentile,
             "matched_themes": c.matched_themes,
             "mcap": c.mcap,
             "liquidity_usd": c.liquidity_usd,
@@ -445,6 +446,206 @@ async def api_scanner_candidates(
         }
         for c in candidates
     ]
+
+
+# --- Platform Intel (Phase 2) ---
+
+
+def _fmt_mcap_web(n: float | None) -> str:
+    if n is None:
+        return "N/A"
+    if n >= 1_000_000:
+        return f"${n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"${n / 1_000:.1f}K"
+    return f"${n:.0f}"
+
+
+def _fmt_age_web(hours: float | None) -> str:
+    if hours is None:
+        return "?"
+    if hours < 1:
+        return f"{int(hours * 60)}m"
+    if hours < 24:
+        return f"{hours:.0f}h"
+    days = hours / 24
+    if days < 7:
+        return f"{days:.1f}d"
+    return f"{days:.0f}d"
+
+
+@router.get("/platforms", response_class=HTMLResponse)
+async def platforms_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    platform: str | None = None,
+):
+    from sqlalchemy import select as sa_select, func
+    from alpha_bot.platform_intel.models import PlatformToken
+    from datetime import datetime
+
+    # Query tokens
+    query = (
+        sa_select(PlatformToken)
+        .order_by(PlatformToken.created_at.desc())
+        .limit(100)
+    )
+    if platform:
+        query = query.where(PlatformToken.platform == platform)
+    result = await db.execute(query)
+    tokens = list(result.scalars().all())
+
+    # Annotate tokens with display strings
+    now = datetime.utcnow()
+    for t in tokens:
+        age_hours = None
+        if t.deploy_timestamp:
+            age_hours = (now - t.deploy_timestamp).total_seconds() / 3600
+        t._age_str = _fmt_age_web(age_hours)
+        t._holders_str = str(t.holders_7d or t.holders_24h or t.holders_6h or t.holders_1h or "—")
+        t._peak_mcap_str = _fmt_mcap_web(t.peak_mcap)
+        t._current_mcap_str = _fmt_mcap_web(t.current_mcap)
+
+    # Aggregate stats per platform
+    stats = []
+    for plat in ("clanker", "virtuals", "flaunch"):
+        count_result = await db.execute(
+            sa_select(func.count()).select_from(PlatformToken).where(PlatformToken.platform == plat)
+        )
+        total = count_result.scalar() or 0
+        if total == 0:
+            continue
+
+        survived_result = await db.execute(
+            sa_select(func.count()).select_from(PlatformToken).where(
+                PlatformToken.platform == plat,
+                PlatformToken.survived_7d == True,  # noqa: E712
+            )
+        )
+        survived = survived_result.scalar() or 0
+
+        # Only count tokens old enough for 7d check
+        eligible_result = await db.execute(
+            sa_select(func.count()).select_from(PlatformToken).where(
+                PlatformToken.platform == plat,
+                PlatformToken.check_status == "complete",
+            )
+        )
+        eligible = eligible_result.scalar() or 0
+
+        avg_peak_result = await db.execute(
+            sa_select(func.avg(PlatformToken.peak_mcap)).where(
+                PlatformToken.platform == plat,
+                PlatformToken.peak_mcap.isnot(None),
+            )
+        )
+        avg_peak = avg_peak_result.scalar() or 0
+
+        stats.append({
+            "platform": plat,
+            "total": total,
+            "survival_pct": (survived / eligible * 100) if eligible > 0 else 0,
+            "avg_peak_mcap": avg_peak,
+        })
+
+    return templates.TemplateResponse(
+        "platforms.html",
+        {
+            "request": request,
+            "tokens": tokens,
+            "stats": stats,
+            "platform_filter": platform,
+        },
+    )
+
+
+@router.get("/api/platforms/tokens")
+async def api_platform_tokens(
+    db: AsyncSession = Depends(get_db),
+    platform: str | None = None,
+    limit: int = 100,
+):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.platform_intel.models import PlatformToken
+
+    query = (
+        sa_select(PlatformToken)
+        .order_by(PlatformToken.created_at.desc())
+        .limit(limit)
+    )
+    if platform:
+        query = query.where(PlatformToken.platform == platform)
+    result = await db.execute(query)
+    tokens = list(result.scalars().all())
+    return [
+        {
+            "ca": t.ca,
+            "chain": t.chain,
+            "platform": t.platform,
+            "name": t.name,
+            "symbol": t.symbol,
+            "deploy_timestamp": t.deploy_timestamp.isoformat() if t.deploy_timestamp else None,
+            "holders_1h": t.holders_1h,
+            "holders_6h": t.holders_6h,
+            "holders_24h": t.holders_24h,
+            "holders_7d": t.holders_7d,
+            "peak_mcap": t.peak_mcap,
+            "current_mcap": t.current_mcap,
+            "survived_7d": t.survived_7d,
+            "reached_100k": t.reached_100k,
+            "reached_500k": t.reached_500k,
+            "reached_1m": t.reached_1m,
+            "check_status": t.check_status,
+            "last_updated": t.last_updated.isoformat() if t.last_updated else None,
+        }
+        for t in tokens
+    ]
+
+
+@router.get("/api/platforms/stats")
+async def api_platform_stats(db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select as sa_select, func
+    from alpha_bot.platform_intel.models import PlatformToken
+
+    stats = []
+    for plat in ("clanker", "virtuals", "flaunch"):
+        count_result = await db.execute(
+            sa_select(func.count()).select_from(PlatformToken).where(PlatformToken.platform == plat)
+        )
+        total = count_result.scalar() or 0
+
+        survived_result = await db.execute(
+            sa_select(func.count()).select_from(PlatformToken).where(
+                PlatformToken.platform == plat,
+                PlatformToken.survived_7d == True,  # noqa: E712
+            )
+        )
+        survived = survived_result.scalar() or 0
+
+        eligible_result = await db.execute(
+            sa_select(func.count()).select_from(PlatformToken).where(
+                PlatformToken.platform == plat,
+                PlatformToken.check_status == "complete",
+            )
+        )
+        eligible = eligible_result.scalar() or 0
+
+        avg_peak_result = await db.execute(
+            sa_select(func.avg(PlatformToken.peak_mcap)).where(
+                PlatformToken.platform == plat,
+                PlatformToken.peak_mcap.isnot(None),
+            )
+        )
+        avg_peak = avg_peak_result.scalar() or 0
+
+        stats.append({
+            "platform": plat,
+            "total": total,
+            "survived": survived,
+            "survival_pct": (survived / eligible * 100) if eligible > 0 else 0,
+            "avg_peak_mcap": avg_peak,
+        })
+    return stats
 
 
 # --- Settings ---

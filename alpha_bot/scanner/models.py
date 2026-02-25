@@ -50,6 +50,7 @@ class ScannerCandidate(Base):
     narrative_depth: Mapped[int] = mapped_column(Integer, default=0)
     profile_match_score: Mapped[float] = mapped_column(Float, default=0.0)
     market_score: Mapped[float] = mapped_column(Float, default=0.0)
+    platform_percentile: Mapped[float] = mapped_column(Float, default=0.0)
     composite_score: Mapped[float] = mapped_column(Float, default=0.0)
 
     # Matched themes (JSON list of theme names)

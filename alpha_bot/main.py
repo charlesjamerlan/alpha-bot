@@ -15,6 +15,7 @@ from alpha_bot.storage.database import async_session, init_db
 from alpha_bot.storage.models import Signal, Tweet
 import alpha_bot.tg_intel.models  # noqa: F401 — register CallOutcome/ChannelScore with Base
 import alpha_bot.scanner.models  # noqa: F401 — register TrendingTheme/ScannerCandidate with Base
+import alpha_bot.platform_intel.models  # noqa: F401 — register PlatformToken with Base
 from alpha_bot.storage.repository import save_signal, save_tweet, tweet_exists
 from alpha_bot.utils.logging import setup_logging
 
@@ -217,5 +218,22 @@ async def main() -> None:
                      settings.scanner_poll_interval_seconds)
     else:
         logger.info("Scanner disabled — set SCANNER_ENABLED=true to activate")
+
+    # Platform Intel (Phase 2: Clanker scraper + lifecycle checks)
+    if settings.clanker_scraper_enabled:
+        from alpha_bot.platform_intel.clanker_scraper import (
+            clanker_scraper_loop,
+            platform_check_loop,
+        )
+
+        tasks.append(clanker_scraper_loop())
+        tasks.append(platform_check_loop())
+        logger.info(
+            "Platform intel ENABLED (scrape=%ds, checks=%ds)",
+            settings.clanker_scraper_interval_seconds,
+            settings.platform_check_interval_seconds,
+        )
+    else:
+        logger.info("Platform intel disabled — set CLANKER_SCRAPER_ENABLED=true")
 
     await asyncio.gather(*tasks)

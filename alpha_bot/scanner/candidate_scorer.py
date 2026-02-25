@@ -8,10 +8,11 @@ from alpha_bot.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Weights
-_W_NARRATIVE = 0.30
-_W_PROFILE = 0.25
-_W_MARKET = 0.20
+# Weights (rebalanced for Phase 2 platform percentile)
+_W_NARRATIVE = 0.25
+_W_PROFILE = 0.20
+_W_PLATFORM = 0.15
+_W_MARKET = 0.15
 _W_DEPTH = 0.15
 _W_SOURCE = 0.10
 
@@ -106,8 +107,12 @@ def compute_composite(
     profile_match_score: float,
     market_score: float,
     discovery_source: str,
+    platform_score: float = 0.0,
 ) -> tuple[float, int]:
     """Compute weighted composite score and tier.
+
+    Args:
+        platform_score: Platform percentile (0-100). Defaults to 0 if no cohort data.
 
     Returns (composite_score, tier) where tier is 1, 2, or 3.
     """
@@ -117,6 +122,7 @@ def compute_composite(
         _W_NARRATIVE * narrative_score
         + _W_DEPTH * depth_score
         + _W_PROFILE * profile_match_score
+        + _W_PLATFORM * platform_score
         + _W_MARKET * market_score
         + _W_SOURCE * source_score
     )

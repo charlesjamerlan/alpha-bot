@@ -93,5 +93,13 @@ class Settings(BaseSettings):
     scanner_use_claude_matching: bool = True
     neynar_api_key: str = ""
 
+    # Platform Intel (Phase 2)
+    clanker_scraper_enabled: bool = False
+    clanker_scraper_interval_seconds: int = 21600  # 6 hours
+    platform_check_interval_seconds: int = 3600  # 1 hour
+    basescan_api_key: str = ""
+    clanker_api_base: str = "https://www.clanker.world/api"
+    clanker_backfill_days: int = 30
+
 
 settings = Settings()

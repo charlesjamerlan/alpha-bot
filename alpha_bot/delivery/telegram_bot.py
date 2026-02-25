@@ -91,6 +91,7 @@ class TelegramDelivery(DeliveryChannel):
         self._app.add_handler(CommandHandler("profile", self._cmd_profile))
         self._app.add_handler(CommandHandler("trends", self._cmd_trends))
         self._app.add_handler(CommandHandler("scan", self._cmd_scan))
+        self._app.add_handler(CommandHandler("platform", self._cmd_platform))
         return self._app
 
     @staticmethod
@@ -106,7 +107,8 @@ class TelegramDelivery(DeliveryChannel):
             "/profile — Winning call profile (Mode 2)\n\n"
             "<b>Scanner:</b>\n"
             "/trends — Current trending themes\n"
-            "/scan &lt;CA&gt; — Full scanner score breakdown\n\n"
+            "/scan &lt;CA&gt; — Full scanner score breakdown\n"
+            "/platform &lt;CA&gt; — Platform cohort percentile\n\n"
             "<b>Trading:</b>\n"
             "/positions — List open positions\n"
             "/buy &lt;CA&gt; — Manual buy via Maestro\n"
@@ -129,7 +131,8 @@ class TelegramDelivery(DeliveryChannel):
             "<code>/profile</code> — Winning call profile (Mode 2)\n\n"
             "<b>Scanner:</b>\n"
             "<code>/trends</code> — Current trending themes\n"
-            "<code>/scan CA_ADDRESS</code> — Full scanner score for a token\n\n"
+            "<code>/scan CA_ADDRESS</code> — Full scanner score for a token\n"
+            "<code>/platform CA_ADDRESS</code> — Platform cohort percentile\n\n"
             "<b>Trading:</b>\n"
             "<code>/positions</code> — Show open positions with P/L\n"
             "<code>/buy CA_ADDRESS</code> — Send buy to Maestro bot\n"
@@ -698,8 +701,30 @@ class TelegramDelivery(DeliveryChannel):
                 pass
 
             mkt_score = compute_market_score(token)
+
+            # Platform percentile
+            plat_score = 0.0
+            plat_str = "N/A"
+            if token["platform"] in ("clanker", "virtuals", "flaunch"):
+                try:
+                    from alpha_bot.platform_intel.percentile_rank import (
+                        compute_platform_percentile,
+                    )
+                    pct = await compute_platform_percentile(
+                        ca, token["platform"], d.get("market_cap"),
+                        None, d.get("volume_24h"), token.get("pair_age_hours"),
+                    )
+                    plat_score = pct.get("overall_percentile", 0.0)
+                    plat_str = (
+                        f"{plat_score:.0f}/100 "
+                        f"({pct['age_bucket']}, {pct['cohort_size']} tokens)"
+                    )
+                except Exception:
+                    pass
+
             composite, tier = compute_composite(
                 nar_score, depth, prof_score, mkt_score, "manual",
+                platform_score=plat_score,
             )
 
             tier_emoji = {1: "\U0001f534", 2: "\U0001f7e1", 3: "\U0001f7e2"}.get(tier, "\u26ab")
@@ -713,6 +738,7 @@ class TelegramDelivery(DeliveryChannel):
                 f"  Narrative: {nar_score:.0f}/100 — {themes_str}\n"
                 f"  Depth: {depth}/100 ({depth // 25} layers)\n"
                 f"  Profile match: {prof_score:.0f}/100\n"
+                f"  Platform: {plat_str}\n"
                 f"  Market quality: {mkt_score:.0f}/100\n\n"
                 f"MCap: {_fmt_mcap(d['market_cap'])} | Liq: {_fmt_mcap(d['liquidity_usd'])}\n"
                 f"Vol 24h: {_fmt_mcap(d['volume_24h'])}\n\n"
@@ -726,6 +752,155 @@ class TelegramDelivery(DeliveryChannel):
             await update.message.reply_text(
                 f"Scan failed: {exc}", parse_mode="HTML"
             )
+
+
+    @staticmethod
+    async def _cmd_platform(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: <code>/platform CONTRACT_ADDRESS</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        ca = context.args[0].strip().lower()
+        await update.message.reply_text(
+            f"Looking up platform data for <code>{ca[:16]}...</code>",
+            parse_mode="HTML",
+        )
+
+        try:
+            from sqlalchemy import select as sa_select
+            from alpha_bot.platform_intel.models import PlatformToken
+            from alpha_bot.platform_intel.percentile_rank import compute_platform_percentile
+            from alpha_bot.tg_intel.platform_detect import detect_platform
+
+            # Check if already in platform_tokens
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(PlatformToken).where(PlatformToken.ca == ca)
+                )
+                pt = result.scalar_one_or_none()
+
+            # If not found, fetch from DexScreener and detect platform
+            if not pt:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    pair = await get_token_by_address(ca, client)
+                if not pair:
+                    await update.message.reply_text(
+                        f"No token found for <code>{ca[:16]}...</code>",
+                        parse_mode="HTML",
+                    )
+                    return
+
+                d = extract_pair_details(pair)
+                platform = detect_platform(ca, pair_data=pair)
+
+                if platform not in ("clanker", "virtuals", "flaunch"):
+                    await update.message.reply_text(
+                        f"<b>${d['symbol']}</b> — platform: {platform}\n"
+                        "Platform percentile only available for Clanker, Virtuals, Flaunch.",
+                        parse_mode="HTML",
+                    )
+                    return
+
+                # Compute age from pair_created_at
+                age_hours = None
+                pca = d.get("pair_created_at")
+                if pca:
+                    try:
+                        from datetime import datetime
+                        created = datetime.utcfromtimestamp(pca / 1000)
+                        age_hours = (datetime.utcnow() - created).total_seconds() / 3600
+                    except (ValueError, TypeError, OSError):
+                        pass
+
+                pct = await compute_platform_percentile(
+                    ca, platform, d.get("market_cap"), None,
+                    d.get("volume_24h"), age_hours,
+                )
+
+                age_str = _fmt_age(age_hours) if age_hours else "?"
+                text = (
+                    f"📊 <b>PLATFORM: ${d['symbol']}</b> ({platform.title()})\n\n"
+                    f"Age: {age_str}\n"
+                    f"MCap: {_fmt_mcap(d['market_cap'])} | Liq: {_fmt_mcap(d['liquidity_usd'])}\n\n"
+                    f"📈 <b>Percentile ({pct['age_bucket']} cohort, {pct['cohort_size']} tokens):</b>\n"
+                    f"  Holders: {pct['holder_percentile']:.0f}th | "
+                    f"MCap: {pct['mcap_percentile']:.0f}th | "
+                    f"Volume: {pct['volume_percentile']:.0f}th\n"
+                    f"  Overall: <b>{pct['overall_percentile']:.0f}th</b> percentile\n\n"
+                    f"<code>{ca}</code>"
+                )
+                await update.message.reply_text(text, parse_mode="HTML")
+                return
+
+            # We have the token in DB — show full lifecycle data
+            age_hours = None
+            if pt.deploy_timestamp:
+                from datetime import datetime
+                age_hours = (datetime.utcnow() - pt.deploy_timestamp).total_seconds() / 3600
+
+            pct = await compute_platform_percentile(
+                ca, pt.platform, pt.current_mcap, pt.holders_7d or pt.holders_24h or pt.holders_1h,
+                pt.volume_24h_at_peak, age_hours,
+            )
+
+            # Build holder trajectory
+            h_parts = []
+            if pt.holders_1h is not None:
+                h_parts.append(f"1h: {pt.holders_1h:,}")
+            if pt.holders_6h is not None:
+                h_parts.append(f"6h: {pt.holders_6h:,}")
+            if pt.holders_24h is not None:
+                h_parts.append(f"24h: {pt.holders_24h:,}")
+            if pt.holders_7d is not None:
+                h_parts.append(f"7d: {pt.holders_7d:,}")
+            holders_str = " → ".join(h_parts) if h_parts else "N/A"
+
+            deploy_str = pt.deploy_timestamp.strftime("%Y-%m-%d %H:%M UTC") if pt.deploy_timestamp else "?"
+            age_str = _fmt_age(age_hours) if age_hours else "?"
+
+            survived = "✅" if pt.survived_7d else "❌"
+            r100k = "✅" if pt.reached_100k else "❌"
+            r500k = "✅" if pt.reached_500k else "❌"
+            r1m = "✅" if pt.reached_1m else "❌"
+
+            text = (
+                f"📊 <b>PLATFORM: ${pt.symbol}</b> ({pt.platform.title()})\n\n"
+                f"Deploy: {deploy_str} ({age_str} ago)\n"
+                f"Holders: {holders_str}\n"
+                f"Peak MCap: {_fmt_mcap(pt.peak_mcap)} | Current: {_fmt_mcap(pt.current_mcap)}\n"
+                f"Survived 7d: {survived} | $100K: {r100k} | $500K: {r500k} | $1M: {r1m}\n\n"
+                f"📈 <b>Percentile ({pct['age_bucket']} cohort, {pct['cohort_size']} tokens):</b>\n"
+                f"  Holders: {pct['holder_percentile']:.0f}th | "
+                f"MCap: {pct['mcap_percentile']:.0f}th | "
+                f"Volume: {pct['volume_percentile']:.0f}th\n"
+                f"  Overall: <b>{pct['overall_percentile']:.0f}th</b> percentile\n\n"
+                f"<code>{ca}</code>"
+            )
+            await update.message.reply_text(text, parse_mode="HTML")
+
+        except Exception as exc:
+            logger.exception("Platform command failed for %s", ca[:12])
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+
+def _fmt_age(hours: float | None) -> str:
+    if hours is None:
+        return "?"
+    if hours < 1:
+        return f"{int(hours * 60)}m"
+    if hours < 24:
+        return f"{hours:.0f}h"
+    days = hours / 24
+    if days < 7:
+        return f"{days:.1f}d"
+    return f"{days:.0f}d"
 
 
 def _format_pnl_telegram(report: PnLReport) -> str:
