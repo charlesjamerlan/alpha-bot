@@ -13,6 +13,7 @@ from alpha_bot.scoring.models import ScoreResult
 from alpha_bot.scoring.scorer import CompositeScorer
 from alpha_bot.storage.database import async_session, init_db
 from alpha_bot.storage.models import Signal, Tweet
+import alpha_bot.tg_intel.models  # noqa: F401 — register CallOutcome/ChannelScore with Base
 from alpha_bot.storage.repository import save_signal, save_tweet, tweet_exists
 from alpha_bot.utils.logging import setup_logging
 
@@ -132,6 +133,11 @@ async def main() -> None:
         # Wire notification callback to TG bot
         if delivery:
             set_notify_fn(delivery.send_text)
+
+    # Wire convergence notifications (works even without trading enabled)
+    if delivery:
+        from alpha_bot.tg_intel.convergence import set_notify_fn as set_convergence_notify
+        set_convergence_notify(delivery.send_text)
     elif settings.trading_enabled:
         logger.warning(
             "Trading enabled but Telethon not configured/no session — "

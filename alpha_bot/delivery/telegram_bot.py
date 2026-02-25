@@ -1,12 +1,16 @@
 import logging
+from datetime import datetime
 
 import telegram
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
+import httpx
+
 from alpha_bot.config import settings
 from alpha_bot.delivery.base import DeliveryChannel
 from alpha_bot.ingestion.models import RawTweet
+from alpha_bot.research.dexscreener import extract_pair_details, get_token_by_address
 from alpha_bot.research.pipeline import run_research
 from alpha_bot.research.pnl_analyzer import PnLReport, analyze_pnl
 from alpha_bot.research.telegram_group import (
@@ -18,6 +22,7 @@ from alpha_bot.research.telegram_group import (
 from alpha_bot.scoring.models import ScoreResult
 from alpha_bot.storage.database import async_session
 from alpha_bot.storage.repository import get_open_positions
+from alpha_bot.tg_intel.models import ChannelScore
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +80,14 @@ class TelegramDelivery(DeliveryChannel):
         self._app.add_handler(CommandHandler("start", self._cmd_start))
         self._app.add_handler(CommandHandler("help", self._cmd_help))
         self._app.add_handler(CommandHandler("research", self._cmd_research))
+        self._app.add_handler(CommandHandler("token", self._cmd_token))
         self._app.add_handler(CommandHandler("pnl", self._cmd_pnl))
         self._app.add_handler(CommandHandler("positions", self._cmd_positions))
         self._app.add_handler(CommandHandler("buy", self._cmd_buy))
         self._app.add_handler(CommandHandler("sell", self._cmd_sell))
         self._app.add_handler(CommandHandler("trading", self._cmd_trading))
+        self._app.add_handler(CommandHandler("channels", self._cmd_channels))
+        self._app.add_handler(CommandHandler("convergence", self._cmd_convergence))
         return self._app
 
     @staticmethod
@@ -88,7 +96,10 @@ class TelegramDelivery(DeliveryChannel):
             "🤖 <b>Alpha Bot</b>\n\n"
             "<b>Research:</b>\n"
             "/research &lt;ticker&gt; — Full research report\n"
-            "/pnl &lt;group&gt; [days] — TG group P/L analysis\n\n"
+            "/token &lt;CA&gt; — DexScreener token lookup\n"
+            "/pnl &lt;group&gt; [days] — TG group P/L analysis\n"
+            "/channels — TG channel quality rankings\n"
+            "/convergence — Recent cross-channel convergences\n\n"
             "<b>Trading:</b>\n"
             "/positions — List open positions\n"
             "/buy &lt;CA&gt; — Manual buy via Maestro\n"
@@ -104,7 +115,10 @@ class TelegramDelivery(DeliveryChannel):
             "<b>Usage:</b>\n\n"
             "<b>Research:</b>\n"
             "<code>/research SOL</code> — Research $SOL\n"
-            "<code>/pnl cryptogroup 30</code> — Analyze last 30 days\n\n"
+            "<code>/token CA_ADDRESS</code> — DexScreener lookup\n"
+            "<code>/pnl cryptogroup 30</code> — Analyze last 30 days\n"
+            "<code>/channels</code> — Show channel quality rankings\n"
+            "<code>/convergence</code> — Recent cross-channel signals\n\n"
             "<b>Trading:</b>\n"
             "<code>/positions</code> — Show open positions with P/L\n"
             "<code>/buy CA_ADDRESS</code> — Send buy to Maestro bot\n"
@@ -139,6 +153,66 @@ class TelegramDelivery(DeliveryChannel):
             await update.message.reply_text(
                 f"❌ Research failed: {exc}", parse_mode="HTML"
             )
+
+    @staticmethod
+    async def _cmd_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: <code>/token CONTRACT_ADDRESS</code>\n"
+                "Example: <code>/token DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        ca = context.args[0].strip()
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                pair = await get_token_by_address(ca, client)
+        except Exception as exc:
+            logger.exception("Token lookup failed for %s", ca[:12])
+            await update.message.reply_text(
+                f"❌ Lookup failed: {exc}", parse_mode="HTML"
+            )
+            return
+
+        if not pair:
+            await update.message.reply_text(
+                f"❌ No token found for <code>{ca[:16]}…</code>\n"
+                "Check the contract address and try again.",
+                parse_mode="HTML",
+            )
+            return
+
+        d = extract_pair_details(pair)
+        chain = pair.get("chainId", "?")
+
+        price_str = f"${d['price_usd']:.10g}" if d["price_usd"] else "N/A"
+        mcap_str = _fmt_mcap(d["market_cap"])
+        liq_str = _fmt_mcap(d["liquidity_usd"])
+        vol_str = _fmt_mcap(d["volume_24h"])
+
+        changes = []
+        for label, key in [("5m", "price_change_5m"), ("1h", "price_change_1h"),
+                           ("6h", "price_change_6h"), ("24h", "price_change_24h")]:
+            val = d.get(key)
+            if val is not None:
+                emoji = "🟢" if val >= 0 else "🔴"
+                changes.append(f"{emoji} {label}: {val:+.1f}%")
+
+        changes_str = " | ".join(changes) if changes else "N/A"
+
+        text = (
+            f"🔎 <b>{d['symbol']}</b> ({d['name']})\n"
+            f"Chain: {chain} | DEX: {d['dex']}\n\n"
+            f"💰 Price: <b>{price_str}</b>\n"
+            f"📊 MCap: {mcap_str} | Liq: {liq_str}\n"
+            f"📈 Vol 24h: {vol_str}\n\n"
+            f"{changes_str}\n\n"
+            f"<code>{ca}</code>"
+        )
+
+        await update.message.reply_text(text, parse_mode="HTML")
 
     @staticmethod
     async def _cmd_pnl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -373,6 +447,89 @@ class TelegramDelivery(DeliveryChannel):
         else:
             await update.message.reply_text(
                 "Usage: <code>/trading on|off</code>", parse_mode="HTML"
+            )
+
+
+    @staticmethod
+    async def _cmd_channels(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        try:
+            from sqlalchemy import select as sa_select
+
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(ChannelScore).order_by(ChannelScore.quality_score.desc())
+                )
+                scores = list(result.scalars().all())
+
+            if not scores:
+                await update.message.reply_text(
+                    "No channel scores yet.\n"
+                    "Run <code>python backfill_channel_scores.py GROUP</code> to generate.",
+                    parse_mode="HTML",
+                )
+                return
+
+            lines = [f"<b>Channel Rankings ({len(scores)})</b>\n"]
+            for i, s in enumerate(scores, 1):
+                medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
+                lines.append(
+                    f"{medal} <b>{s.channel_name or s.channel_id}</b> — "
+                    f"<b>{s.quality_score:.0f}/100</b>\n"
+                    f"   Calls: {s.total_calls} ({s.resolved_calls} resolved)\n"
+                    f"   2x: {s.hit_rate_2x:.0%} | 5x: {s.hit_rate_5x:.0%} | "
+                    f"Avg ROI: {s.avg_roi_peak:+.0f}%\n"
+                    f"   Best: {s.best_platform} @ {s.best_mcap_range}"
+                )
+
+            text = "\n".join(lines)
+            for i in range(0, len(text), 4000):
+                await update.message.reply_text(
+                    text[i : i + 4000], parse_mode="HTML"
+                )
+        except Exception as exc:
+            logger.exception("Channels command failed")
+            await update.message.reply_text(
+                f"❌ Failed: {exc}", parse_mode="HTML"
+            )
+
+
+    @staticmethod
+    async def _cmd_convergence(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        from alpha_bot.tg_intel.convergence import get_recent_convergences
+
+        signals = get_recent_convergences()
+        if not signals:
+            await update.message.reply_text(
+                "No convergence signals in the current window.",
+                parse_mode="HTML",
+            )
+            return
+
+        lines = [f"<b>🔀 Recent Convergences ({len(signals)})</b>\n"]
+        for s in signals:
+            ca = s["ca"]
+            ca_short = f"{ca[:6]}...{ca[-4:]}" if len(ca) > 12 else ca
+            ticker = s.get("ticker") or "?"
+            ago = ""
+            if s.get("alerted_at"):
+                delta = datetime.utcnow() - s["alerted_at"]
+                ago_min = max(int(delta.total_seconds() / 60), 0)
+                ago = f" — {ago_min}m ago"
+            lines.append(
+                f"<b>${ticker}</b> ({s.get('chain', '?')}) "
+                f"conf={s.get('confidence', 0):.2f} "
+                f"ch={s.get('channels', 0)}{ago}\n"
+                f"  <code>{ca_short}</code>"
+            )
+
+        text = "\n".join(lines)
+        for i in range(0, len(text), 4000):
+            await update.message.reply_text(
+                text[i : i + 4000], parse_mode="HTML"
             )
 
 

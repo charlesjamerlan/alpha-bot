@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     twitter_email: str = ""
     twitter_password: str = ""
     twikit_cookies_file: str = "twikit_cookies.json"
+    capsolver_api_key: str = ""  # capsolver.com API key (for Cloudflare bypass)
 
     twitter_search_query: str = (
         "(crypto OR bitcoin OR ethereum OR $BTC OR $ETH OR $SOL OR stocks OR macro) -is:retweet"
@@ -73,6 +74,10 @@ class Settings(BaseSettings):
     price_poll_interval: int = 10  # seconds between price checks
     trade_cooldown_seconds: int = 30  # prevent re-buy within N seconds
     telegram_monitor_groups: str = ""  # comma-separated group usernames/IDs
+
+    # Convergence detection (Phase 0.2)
+    convergence_window_hours: int = 2
+    convergence_min_channels: int = 2
 
 
 settings = Settings()
