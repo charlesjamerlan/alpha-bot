@@ -132,6 +132,59 @@ async def get_token_transfers(
     return transfers
 
 
+async def get_address_token_transfers(
+    address: str,
+    client: httpx.AsyncClient,
+    start_block: int = 0,
+    page: int = 1,
+    offset: int = 50,
+    sort: str = "desc",
+) -> list[dict] | None:
+    """Get ERC-20 token transfers for a wallet address on Base.
+
+    Queries by wallet address (not token contract), useful for monitoring
+    what tokens a specific wallet is buying/selling.
+
+    Returns list of {from, to, value, timestamp, hash, blockNumber, tokenSymbol,
+    contractAddress} or None on failure.
+    """
+    await asyncio.sleep(_RATE_LIMIT_SLEEP)
+
+    data = await _etherscan_get(
+        {
+            "module": "account",
+            "action": "tokentx",
+            "address": address,
+            "startblock": str(start_block),
+            "page": str(page),
+            "offset": str(offset),
+            "sort": sort,
+        },
+        client,
+    )
+    if data is None:
+        return None
+
+    result = data.get("result")
+    if not isinstance(result, list):
+        return None
+
+    transfers = []
+    for tx in result:
+        transfers.append({
+            "from": tx.get("from", ""),
+            "to": tx.get("to", ""),
+            "value": tx.get("value", "0"),
+            "timestamp": tx.get("timeStamp", ""),
+            "hash": tx.get("hash", ""),
+            "blockNumber": tx.get("blockNumber", ""),
+            "tokenSymbol": tx.get("tokenSymbol", ""),
+            "contractAddress": tx.get("contractAddress", ""),
+        })
+
+    return transfers
+
+
 async def get_contract_creation(
     ca: str, client: httpx.AsyncClient
 ) -> dict | None:

@@ -97,6 +97,7 @@ class TelegramDelivery(DeliveryChannel):
         self._app.add_handler(CommandHandler("wallets", self._cmd_wallets))
         self._app.add_handler(CommandHandler("clusters", self._cmd_clusters))
         self._app.add_handler(CommandHandler("watchlist", self._cmd_watchlist))
+        self._app.add_handler(CommandHandler("addwallet", self._cmd_addwallet))
         self._app.add_handler(CommandHandler("active", self._cmd_active))
         self._app.add_handler(CommandHandler("exit_check", self._cmd_exit_check))
         self._app.add_handler(CommandHandler("status", self._cmd_status))
@@ -123,7 +124,8 @@ class TelegramDelivery(DeliveryChannel):
             "/weights — Show current scoring weights\n\n"
             "<b>Wallets:</b>\n"
             "/wallets — Top private wallets\n"
-            "/clusters — Wallet cluster summary\n\n"
+            "/clusters — Wallet cluster summary\n"
+            "/addwallet &lt;ADDR&gt; [label] — Add wallet manually\n\n"
             "<b>Trading:</b>\n"
             "/positions — List open positions\n"
             "/active — Tokens you've entered (alias for /positions)\n"
@@ -158,7 +160,8 @@ class TelegramDelivery(DeliveryChannel):
             "<code>/weights</code> — Show current scoring weights\n\n"
             "<b>Wallets:</b>\n"
             "<code>/wallets</code> — Top private wallets by quality\n"
-            "<code>/clusters</code> — Wallet cluster summary\n\n"
+            "<code>/clusters</code> — Wallet cluster summary\n"
+            "<code>/addwallet 0xABC... alpha1</code> — Add wallet manually\n\n"
             "<b>Trading:</b>\n"
             "<code>/positions</code> — Show open positions with P/L\n"
             "<code>/active</code> — Alias for /positions\n"
@@ -1064,6 +1067,74 @@ class TelegramDelivery(DeliveryChannel):
 
 
     @staticmethod
+    async def _cmd_addwallet(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: <code>/addwallet ADDRESS [label]</code>\n"
+                "Example: <code>/addwallet 0xABC...123 whale1</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        address = context.args[0].strip().lower()
+
+        # Basic validation: must look like an EVM address
+        if not address.startswith("0x") or len(address) != 42:
+            await update.message.reply_text(
+                "Invalid address. Must be a 42-char 0x-prefixed address.",
+                parse_mode="HTML",
+            )
+            return
+
+        label = " ".join(context.args[1:]) if len(context.args) > 1 else ""
+
+        try:
+            from sqlalchemy import select as sa_select
+            from alpha_bot.wallets.models import PrivateWallet
+
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(PrivateWallet)
+                    .where(PrivateWallet.address == address)
+                )
+                existing = result.scalar_one_or_none()
+
+                if existing:
+                    await update.message.reply_text(
+                        f"Wallet <code>{address[:6]}...{address[-4:]}</code> "
+                        f"already tracked (Q: {existing.quality_score:.0f}, "
+                        f"status: {existing.status}).",
+                        parse_mode="HTML",
+                    )
+                    return
+
+                wallet = PrivateWallet(
+                    address=address,
+                    label=label,
+                    source="manual",
+                    quality_score=50.0,
+                    status="active",
+                )
+                session.add(wallet)
+                await session.commit()
+
+            addr_short = f"{address[:6]}...{address[-4:]}"
+            label_str = f' "{label}"' if label else ""
+            await update.message.reply_text(
+                f"Added wallet <code>{addr_short}</code>{label_str}\n"
+                f"Quality: 50/100 (neutral) | Source: manual\n"
+                f"Use /wallets to see all tracked wallets.",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.exception("Add wallet failed for %s", address[:12])
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
     async def _cmd_watchlist(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -1209,6 +1280,8 @@ class TelegramDelivery(DeliveryChannel):
             flags = {
                 "Scanner": settings.scanner_enabled,
                 "Platform Intel": settings.clanker_scraper_enabled,
+                "Realtime Deploy": settings.clanker_realtime_enabled,
+                "Wallet Monitor": settings.wallet_buy_monitor_enabled,
                 "Recalibration": settings.recalibrate_enabled,
                 "Wallets": settings.wallet_curation_enabled,
                 "Trading": settings.trading_enabled,

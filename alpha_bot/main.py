@@ -266,6 +266,42 @@ async def main() -> None:
     else:
         logger.info("Recalibration disabled — set RECALIBRATE_ENABLED=true")
 
+    # Clanker Realtime Deploy Watcher
+    if settings.clanker_realtime_enabled:
+        from alpha_bot.platform_intel.clanker_realtime import (
+            clanker_realtime_loop,
+            set_notify_fn as set_realtime_notify,
+        )
+
+        if delivery:
+            set_realtime_notify(delivery.send_text)
+
+        tasks.append(clanker_realtime_loop())
+        logger.info(
+            "Clanker realtime watcher ENABLED (interval=%ds)",
+            settings.clanker_realtime_interval_seconds,
+        )
+    else:
+        logger.info("Clanker realtime watcher disabled — set CLANKER_REALTIME_ENABLED=true")
+
+    # Smart Wallet Buy Monitor
+    if settings.wallet_buy_monitor_enabled:
+        from alpha_bot.wallets.buy_monitor import (
+            wallet_buy_monitor_loop,
+            set_notify_fn as set_buy_monitor_notify,
+        )
+
+        if delivery:
+            set_buy_monitor_notify(delivery.send_text)
+
+        tasks.append(wallet_buy_monitor_loop())
+        logger.info(
+            "Wallet buy monitor ENABLED (interval=%ds)",
+            settings.wallet_buy_monitor_interval_seconds,
+        )
+    else:
+        logger.info("Wallet buy monitor disabled — set WALLET_BUY_MONITOR_ENABLED=true")
+
     # Private Wallet Curation (Phase 4)
     if settings.wallet_curation_enabled:
         from alpha_bot.wallets.reverse_engineer import (

@@ -115,5 +115,15 @@ class Settings(BaseSettings):
     wallet_min_winner_appearances: int = 3
     wallet_copier_retire_threshold: int = 50
 
+    # Clanker Realtime Deploy Watcher
+    clanker_realtime_enabled: bool = False
+    clanker_realtime_interval_seconds: int = 15
+
+    # Smart Wallet Buy Monitor
+    wallet_buy_monitor_enabled: bool = False
+    wallet_buy_monitor_interval_seconds: int = 60
+    wallet_buy_min_quality: float = 0.0  # monitor all active wallets
+    wallet_buy_alert_min_quality: float = 50.0  # only alert for quality 50+
+
 
 settings = Settings()
