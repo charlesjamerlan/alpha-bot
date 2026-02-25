@@ -92,6 +92,8 @@ class Settings(BaseSettings):
     digest_hour_utc: int = 9
     scanner_use_claude_matching: bool = True
     neynar_api_key: str = ""
+    watchlist_monitor_interval_seconds: int = 600  # 10 min
+    watchlist_degradation_pct: float = -30.0  # alert when mcap drops >30%
 
     # Platform Intel (Phase 2)
     clanker_scraper_enabled: bool = False
@@ -100,6 +102,18 @@ class Settings(BaseSettings):
     basescan_api_key: str = ""
     clanker_api_base: str = "https://www.clanker.world/api"
     clanker_backfill_days: int = 30
+
+    # Backtesting & Recalibration (Phase 3)
+    recalibrate_enabled: bool = False
+    recalibrate_interval_seconds: int = 604800  # 7 days
+    backtest_default_lookback_days: int = 30
+
+    # Private Wallet Curation (Phase 4)
+    wallet_curation_enabled: bool = False
+    wallet_scan_interval_seconds: int = 21600  # 6 hours
+    wallet_decay_interval_seconds: int = 43200  # 12 hours
+    wallet_min_winner_appearances: int = 3
+    wallet_copier_retire_threshold: int = 50
 
 
 settings = Settings()

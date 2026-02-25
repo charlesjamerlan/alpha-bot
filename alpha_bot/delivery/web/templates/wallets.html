@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Wallets — Alpha Bot{% endblock %}
+{% block content %}
+<h2>Private Wallet Curation</h2>
+
+<!-- Wallet List -->
+<div class="section-card">
+    <h3>Discovered Wallets ({{ wallets|length }})</h3>
+    {% if wallets %}
+    <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+        <thead>
+            <tr style="border-bottom:1px solid #30363d;color:#8b949e;text-align:left;">
+                <th style="padding:0.5rem;">Address</th>
+                <th style="padding:0.5rem;">Quality</th>
+                <th style="padding:0.5rem;">Wins</th>
+                <th style="padding:0.5rem;">Copiers</th>
+                <th style="padding:0.5rem;">Decay</th>
+                <th style="padding:0.5rem;">Cluster</th>
+                <th style="padding:0.5rem;">Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for w in wallets %}
+            <tr style="border-bottom:1px solid #21262d;">
+                <td style="padding:0.5rem;">
+                    <code style="color:#58a6ff;">{{ w.address[:6] }}...{{ w.address[-4:] }}</code>
+                    {% if w.label %}<br><span style="color:#8b949e;font-size:0.8rem;">{{ w.label }}</span>{% endif %}
+                </td>
+                <td style="padding:0.5rem;">
+                    <span style="font-weight:700;{% if w.quality_score >= 70 %}color:#3fb950;{% elif w.quality_score >= 40 %}color:#d29922;{% else %}color:#f85149;{% endif %}">
+                        {{ "%.0f"|format(w.quality_score) }}
+                    </span>
+                </td>
+                <td style="padding:0.5rem;">{{ w.total_wins }}/{{ w.total_tracked }}</td>
+                <td style="padding:0.5rem;">{{ w.estimated_copiers }}</td>
+                <td style="padding:0.5rem;">
+                    <span style="{% if w.decay_score >= 60 %}color:#f85149;{% elif w.decay_score >= 30 %}color:#d29922;{% else %}color:#3fb950;{% endif %}">
+                        {{ "%.0f"|format(w.decay_score) }}
+                    </span>
+                </td>
+                <td style="padding:0.5rem;">{{ w.cluster_id or '—' }}</td>
+                <td style="padding:0.5rem;">
+                    {% if w.status == 'active' %}
+                    <span style="color:#3fb950;">active</span>
+                    {% elif w.status == 'decaying' %}
+                    <span style="color:#d29922;">decaying</span>
+                    {% else %}
+                    <span style="color:#f85149;">{{ w.status }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No private wallets discovered yet. Enable wallet curation with WALLET_CURATION_ENABLED=true.</p>
+    {% endif %}
+</div>
+
+<!-- Clusters -->
+<div class="section-card" style="margin-top:1.5rem;">
+    <h3>Wallet Clusters ({{ clusters|length }})</h3>
+    {% if clusters %}
+    <div class="stats-grid">
+        {% for c in clusters %}
+        <div class="stat-box" style="text-align:left;padding:0.8rem;">
+            <div style="font-weight:700;color:#58a6ff;margin-bottom:0.3rem;">{{ c.cluster_label }}</div>
+            <div style="font-size:0.85rem;">
+                Wallets: {{ c.wallet_count }}<br>
+                Avg Quality: {{ "%.0f"|format(c.avg_quality_score) }}<br>
+                Independence: <span style="{% if c.independence_score >= 70 %}color:#3fb950;{% elif c.independence_score >= 40 %}color:#d29922;{% else %}color:#f85149;{% endif %}">{{ "%.0f"|format(c.independence_score) }}/100</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No clusters built yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

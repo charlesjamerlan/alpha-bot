@@ -648,6 +648,223 @@ async def api_platform_stats(db: AsyncSession = Depends(get_db)):
     return stats
 
 
+# --- Backtest (Phase 3) ---
+
+
+@router.get("/backtest", response_class=HTMLResponse)
+async def backtest_page(request: Request, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.scoring_engine.models import BacktestRun, ScoringWeights
+
+    # Past runs
+    runs_result = await db.execute(
+        sa_select(BacktestRun).order_by(BacktestRun.run_timestamp.desc()).limit(20)
+    )
+    runs = list(runs_result.scalars().all())
+
+    # Current weights
+    weights_result = await db.execute(
+        sa_select(ScoringWeights)
+        .where(ScoringWeights.active == True)  # noqa: E712
+        .order_by(ScoringWeights.version.desc())
+        .limit(1)
+    )
+    active_weights = weights_result.scalar_one_or_none()
+
+    return templates.TemplateResponse(
+        "backtest.html",
+        {
+            "request": request,
+            "runs": runs,
+            "active_weights": active_weights,
+            "json": json,
+        },
+    )
+
+
+@router.post("/backtest", response_class=HTMLResponse)
+async def backtest_run(request: Request, db: AsyncSession = Depends(get_db)):
+    from alpha_bot.scoring_engine.backtest import run_backtest
+    from alpha_bot.scoring_engine.models import BacktestRun, ScoringWeights
+
+    form = await request.form()
+    days = int(form.get("days", 30))
+
+    error = None
+    try:
+        await run_backtest(lookback_days=days)
+    except Exception as exc:
+        logger.exception("Backtest failed")
+        error = str(exc)
+
+    from sqlalchemy import select as sa_select
+
+    runs_result = await db.execute(
+        sa_select(BacktestRun).order_by(BacktestRun.run_timestamp.desc()).limit(20)
+    )
+    runs = list(runs_result.scalars().all())
+
+    weights_result = await db.execute(
+        sa_select(ScoringWeights)
+        .where(ScoringWeights.active == True)  # noqa: E712
+        .order_by(ScoringWeights.version.desc())
+        .limit(1)
+    )
+    active_weights = weights_result.scalar_one_or_none()
+
+    return templates.TemplateResponse(
+        "backtest.html",
+        {
+            "request": request,
+            "runs": runs,
+            "active_weights": active_weights,
+            "error": error,
+            "json": json,
+        },
+    )
+
+
+@router.get("/api/backtest/runs")
+async def api_backtest_runs(db: AsyncSession = Depends(get_db), limit: int = 20):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.scoring_engine.models import BacktestRun
+
+    result = await db.execute(
+        sa_select(BacktestRun).order_by(BacktestRun.run_timestamp.desc()).limit(limit)
+    )
+    runs = list(result.scalars().all())
+    return [
+        {
+            "id": r.id,
+            "run_timestamp": r.run_timestamp.isoformat(),
+            "lookback_days": r.lookback_days,
+            "token_count": r.token_count,
+            "tier1_count": r.tier1_count,
+            "tier2_count": r.tier2_count,
+            "tier1_hit_rate_2x": r.tier1_hit_rate_2x,
+            "tier2_hit_rate_2x": r.tier2_hit_rate_2x,
+            "tier1_avg_roi": r.tier1_avg_roi,
+            "tier2_avg_roi": r.tier2_avg_roi,
+            "optimal_tier1_threshold": r.optimal_tier1_threshold,
+            "optimal_tier2_threshold": r.optimal_tier2_threshold,
+        }
+        for r in runs
+    ]
+
+
+@router.get("/api/weights")
+async def api_weights(db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.scoring_engine.models import ScoringWeights
+
+    result = await db.execute(
+        sa_select(ScoringWeights).order_by(ScoringWeights.version.desc()).limit(10)
+    )
+    weights = list(result.scalars().all())
+    return [
+        {
+            "version": w.version,
+            "active": w.active,
+            "source": w.source,
+            "w_narrative": w.w_narrative,
+            "w_profile": w.w_profile,
+            "w_platform": w.w_platform,
+            "w_market": w.w_market,
+            "w_depth": w.w_depth,
+            "w_source": w.w_source,
+            "created_at": w.created_at.isoformat(),
+        }
+        for w in weights
+    ]
+
+
+# --- Wallets (Phase 4) ---
+
+
+@router.get("/wallets", response_class=HTMLResponse)
+async def wallets_page(request: Request, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.wallets.models import PrivateWallet, WalletCluster
+
+    wallets_result = await db.execute(
+        sa_select(PrivateWallet)
+        .order_by(PrivateWallet.quality_score.desc())
+        .limit(50)
+    )
+    wallets = list(wallets_result.scalars().all())
+
+    clusters_result = await db.execute(
+        sa_select(WalletCluster)
+        .order_by(WalletCluster.avg_quality_score.desc())
+        .limit(20)
+    )
+    clusters = list(clusters_result.scalars().all())
+
+    return templates.TemplateResponse(
+        "wallets.html",
+        {
+            "request": request,
+            "wallets": wallets,
+            "clusters": clusters,
+        },
+    )
+
+
+@router.get("/api/wallets")
+async def api_wallets(db: AsyncSession = Depends(get_db), limit: int = 50):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.wallets.models import PrivateWallet
+
+    result = await db.execute(
+        sa_select(PrivateWallet)
+        .order_by(PrivateWallet.quality_score.desc())
+        .limit(limit)
+    )
+    wallets = list(result.scalars().all())
+    return [
+        {
+            "address": w.address,
+            "label": w.label,
+            "source": w.source,
+            "quality_score": w.quality_score,
+            "estimated_copiers": w.estimated_copiers,
+            "decay_score": w.decay_score,
+            "cluster_id": w.cluster_id,
+            "total_wins": w.total_wins,
+            "total_tracked": w.total_tracked,
+            "avg_entry_roi": w.avg_entry_roi,
+            "status": w.status,
+            "first_seen": w.first_seen.isoformat() if w.first_seen else None,
+            "last_updated": w.last_updated.isoformat() if w.last_updated else None,
+        }
+        for w in wallets
+    ]
+
+
+@router.get("/api/clusters")
+async def api_clusters(db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select as sa_select
+    from alpha_bot.wallets.models import WalletCluster
+
+    result = await db.execute(
+        sa_select(WalletCluster)
+        .order_by(WalletCluster.avg_quality_score.desc())
+        .limit(20)
+    )
+    clusters = list(result.scalars().all())
+    return [
+        {
+            "id": c.id,
+            "cluster_label": c.cluster_label,
+            "wallet_count": c.wallet_count,
+            "avg_quality_score": c.avg_quality_score,
+            "independence_score": c.independence_score,
+            "last_updated": c.last_updated.isoformat() if c.last_updated else None,
+        }
+        for c in clusters
+    ]
+
+
 # --- Settings ---
 
 # Fields we allow editing from the UI

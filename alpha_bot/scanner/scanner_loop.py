@@ -134,6 +134,22 @@ async def scanner_loop() -> None:
                 platform_score = 0.0
                 token_platform = token.get("platform", "unknown")
                 if token_platform in ("clanker", "virtuals", "flaunch"):
+                    # Look up platform bonus from enrichment data
+                    platform_bonus = 0.0
+                    try:
+                        from alpha_bot.platform_intel.models import PlatformToken as PT
+                        async with async_session() as _sess:
+                            _r = await _sess.execute(
+                                select(PT.platform_bonus_score)
+                                .where(PT.ca == ca.lower())
+                                .limit(1)
+                            )
+                            _bonus = _r.scalar_one_or_none()
+                            if _bonus is not None:
+                                platform_bonus = _bonus
+                    except Exception:
+                        pass
+
                     try:
                         from alpha_bot.platform_intel.percentile_rank import (
                             compute_platform_percentile,
@@ -142,6 +158,7 @@ async def scanner_loop() -> None:
                             ca, token_platform, token.get("mcap"),
                             None, token.get("volume_24h"),
                             token.get("pair_age_hours"),
+                            platform_bonus=platform_bonus,
                         )
                         platform_score = pct.get("overall_percentile", 0.0)
                     except Exception as exc:

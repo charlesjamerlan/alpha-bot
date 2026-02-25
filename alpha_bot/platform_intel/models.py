@@ -55,6 +55,18 @@ class PlatformToken(Base):
         DateTime, default=datetime.utcnow, nullable=False
     )
 
+    # --- Platform-specific enrichment (Phase 2.2/2.3) ---
+    # Virtuals: correlation with $VIRTUAL token
+    virtual_correlation: Mapped[float | None] = mapped_column(Float, nullable=True)
+    agent_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    agent_activity_source: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Flaunch: buyback mechanics
+    buyback_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    buyback_total_eth: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_buyback_timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Bonus/penalty applied on top of percentile (-20 to +20)
+    platform_bonus_score: Mapped[float] = mapped_column(Float, default=0.0)
+
     __table_args__ = (
         Index("ix_platform_tokens_platform", "platform"),
         Index("ix_platform_tokens_deploy", "deploy_timestamp"),

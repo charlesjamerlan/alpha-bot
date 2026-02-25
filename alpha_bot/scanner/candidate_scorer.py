@@ -3,18 +3,54 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from alpha_bot.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Weights (rebalanced for Phase 2 platform percentile)
+# Default weights (used as fallback if DB has no active weights)
 _W_NARRATIVE = 0.25
 _W_PROFILE = 0.20
 _W_PLATFORM = 0.15
 _W_MARKET = 0.15
 _W_DEPTH = 0.15
 _W_SOURCE = 0.10
+
+# Sync cache for weights (loaded from async get_active_weights periodically)
+_cached_weights: dict | None = None
+_cached_weights_ts: float = 0.0
+_WEIGHTS_CACHE_TTL = 300  # 5 minutes
+
+
+def _get_weights() -> dict:
+    """Get current weights from cache or return defaults.
+
+    The cache is populated by refresh_weights_cache() which should be called
+    periodically from async code.
+    """
+    global _cached_weights, _cached_weights_ts
+    if _cached_weights and (time.time() - _cached_weights_ts) < _WEIGHTS_CACHE_TTL:
+        return _cached_weights
+    return {
+        "narrative": _W_NARRATIVE,
+        "profile": _W_PROFILE,
+        "platform": _W_PLATFORM,
+        "market": _W_MARKET,
+        "depth": _W_DEPTH,
+        "source": _W_SOURCE,
+    }
+
+
+async def refresh_weights_cache() -> None:
+    """Async refresh of the weights cache from DB."""
+    global _cached_weights, _cached_weights_ts
+    try:
+        from alpha_bot.scoring_engine.recalibrate import get_active_weights
+        _cached_weights = await get_active_weights()
+        _cached_weights_ts = time.time()
+    except Exception:
+        logger.debug("Could not refresh weights from DB, using defaults")
 
 # Discovery source bonus scores (0-100)
 _SOURCE_BONUS = {
@@ -116,15 +152,16 @@ def compute_composite(
 
     Returns (composite_score, tier) where tier is 1, 2, or 3.
     """
+    w = _get_weights()
     source_score = float(_SOURCE_BONUS.get(discovery_source, 40))
 
     composite = (
-        _W_NARRATIVE * narrative_score
-        + _W_DEPTH * depth_score
-        + _W_PROFILE * profile_match_score
-        + _W_PLATFORM * platform_score
-        + _W_MARKET * market_score
-        + _W_SOURCE * source_score
+        w["narrative"] * narrative_score
+        + w["depth"] * depth_score
+        + w["profile"] * profile_match_score
+        + w["platform"] * platform_score
+        + w["market"] * market_score
+        + w["source"] * source_score
     )
 
     composite = round(min(composite, 100.0), 1)

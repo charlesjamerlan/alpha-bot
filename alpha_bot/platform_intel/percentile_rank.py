@@ -58,6 +58,7 @@ async def compute_platform_percentile(
     current_holders: int | None,
     current_volume: float | None,
     pair_age_hours: float | None,
+    platform_bonus: float = 0.0,
 ) -> dict:
     """Compare token against platform cohort in the same age bucket.
 
@@ -141,10 +142,13 @@ async def compute_platform_percentile(
     holder_pct = _percentile_of(float(current_holders), holders_list) if current_holders else 0.0
     volume_pct = _percentile_of(current_volume, volumes) if current_volume else 0.0
 
-    overall = round(
-        _W_HOLDERS * holder_pct + _W_MCAP * mcap_pct + _W_VOLUME * volume_pct,
-        1,
-    )
+    overall = _W_HOLDERS * holder_pct + _W_MCAP * mcap_pct + _W_VOLUME * volume_pct
+
+    # Apply platform-specific bonus/penalty (clamped to 0-100)
+    if platform_bonus != 0.0:
+        overall = max(0.0, min(100.0, overall + platform_bonus))
+
+    overall = round(overall, 1)
 
     return {
         "holder_percentile": holder_pct,

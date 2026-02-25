@@ -24,6 +24,7 @@ dependencies = [
     "twikit>=2.3",
     "telethon>=1.36",
     "pytrends>=4.9",
+    "networkx>=3.0",
 ]
 
 [project.optional-dependencies]

@@ -313,6 +313,49 @@ async def _check_token(pt: PlatformToken, client: httpx.AsyncClient) -> None:
         if market and market.get("liquidity_usd") is not None:
             row.liquidity_usd = market["liquidity_usd"]
 
+        # --- Platform-specific enrichment (Phase 2.2/2.3) ---
+        if row.platform == "virtuals" and row.virtual_correlation is None:
+            try:
+                from alpha_bot.platform_intel.virtuals_scorer import (
+                    check_agent_activity,
+                    compute_virtual_correlation,
+                    compute_virtuals_bonus,
+                )
+
+                pair_data = await get_token_by_address(pt.ca, client)
+                corr = await compute_virtual_correlation(pt.ca, client)
+                agent_active, activity_src = check_agent_activity(pair_data or {})
+                bonus = compute_virtuals_bonus(corr, agent_active)
+
+                row.virtual_correlation = corr
+                row.agent_active = agent_active
+                row.agent_activity_source = activity_src
+                row.platform_bonus_score = bonus
+                updated = True
+                logger.debug(
+                    "Virtuals enrichment for %s: corr=%.2f active=%s bonus=%.0f",
+                    pt.ca[:12], corr, agent_active, bonus,
+                )
+            except Exception:
+                logger.debug("Virtuals enrichment failed for %s", pt.ca[:12], exc_info=True)
+
+        elif row.platform == "flaunch" and row.buyback_count is None:
+            try:
+                from alpha_bot.platform_intel.flaunch_tracker import enrich_flaunch_token
+
+                result = await enrich_flaunch_token(pt.ca, client)
+                row.buyback_count = result["buyback_count"]
+                row.buyback_total_eth = result["buyback_total_eth"]
+                row.last_buyback_timestamp = result["last_buyback_timestamp"]
+                row.platform_bonus_score = result["platform_bonus_score"]
+                updated = True
+                logger.debug(
+                    "Flaunch enrichment for %s: buybacks=%d bonus=%.0f",
+                    pt.ca[:12], result["buyback_count"], result["platform_bonus_score"],
+                )
+            except Exception:
+                logger.debug("Flaunch enrichment failed for %s", pt.ca[:12], exc_info=True)
+
         # Update check_status based on what we've filled
         if row.check_status != "complete":
             if any([row.holders_1h, row.mcap_1h, row.holders_6h, row.holders_24h]):

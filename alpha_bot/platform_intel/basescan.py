@@ -83,6 +83,55 @@ async def get_holder_count(ca: str, client: httpx.AsyncClient) -> int | None:
     return None
 
 
+async def get_token_transfers(
+    ca: str,
+    client: httpx.AsyncClient,
+    page: int = 1,
+    offset: int = 50,
+    sort: str = "asc",
+) -> list[dict] | None:
+    """Get token transfer events for a contract on Base.
+
+    Returns the first N transfers sorted by block number (ascending by default),
+    useful for finding early buyers.
+
+    Each entry: {from, to, value, timestamp, hash, blockNumber, tokenSymbol}
+    """
+    await asyncio.sleep(_RATE_LIMIT_SLEEP)
+
+    data = await _etherscan_get(
+        {
+            "module": "account",
+            "action": "tokentx",
+            "contractaddress": ca,
+            "page": str(page),
+            "offset": str(offset),
+            "sort": sort,
+        },
+        client,
+    )
+    if data is None:
+        return None
+
+    result = data.get("result")
+    if not isinstance(result, list):
+        return None
+
+    transfers = []
+    for tx in result:
+        transfers.append({
+            "from": tx.get("from", ""),
+            "to": tx.get("to", ""),
+            "value": tx.get("value", "0"),
+            "timestamp": tx.get("timeStamp", ""),
+            "hash": tx.get("hash", ""),
+            "blockNumber": tx.get("blockNumber", ""),
+            "tokenSymbol": tx.get("tokenSymbol", ""),
+        })
+
+    return transfers
+
+
 async def get_contract_creation(
     ca: str, client: httpx.AsyncClient
 ) -> dict | None:

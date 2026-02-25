@@ -117,7 +117,7 @@ def _fmt_number(n: float | None) -> str:
     return f"${n:.0f}"
 
 
-async def run(group: str, days: int) -> None:
+async def run(group: str, days: int, author: str | None = None) -> None:
     setup_logging()
 
     if not is_telethon_configured():
@@ -155,10 +155,19 @@ async def run(group: str, days: int) -> None:
         print(f"No ticker calls found in {group} over the last {days} days.")
         sys.exit(0)
 
+    # Filter by author if specified
+    if author:
+        calls = [c for c in calls if c["author"] == author]
+        if not calls:
+            print(f"No calls found by author '{author}'.")
+            sys.exit(0)
+        print(f"Filtered to {len(calls)} calls by {author}")
+
     unique = len({c["ticker"] for c in calls})
     print(f"Found {len(calls)} ticker mentions ({unique} unique). Fetching prices...")
 
-    report = await analyze_pnl(calls, group_name=group, days_back=days)
+    group_label = f"{author}@{group}" if author else str(group)
+    report = await analyze_pnl(calls, group_name=group_label, days_back=days)
     print(_format_report(report))
 
 
@@ -176,8 +185,14 @@ def main() -> None:
         default=90,
         help="Number of days to look back (default: 90)",
     )
+    parser.add_argument(
+        "--author",
+        type=str,
+        default=None,
+        help="Filter calls to a specific author/username",
+    )
     args = parser.parse_args()
-    asyncio.run(run(args.group, args.days))
+    asyncio.run(run(args.group, args.days, author=args.author))
 
 
 if __name__ == "__main__":

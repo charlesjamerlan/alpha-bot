@@ -4,7 +4,7 @@ import logging
 import os
 from datetime import datetime, timezone
 
-from twikit import Client
+from twikit import Client, Capsolver
 
 from alpha_bot.config import settings
 from alpha_bot.ingestion.base import BaseIngester
@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 
 class TwikitIngester(BaseIngester):
     def __init__(self) -> None:
-        self._client = Client("en-US")
+        captcha_solver = None
+        if settings.capsolver_api_key:
+            captcha_solver = Capsolver(api_key=settings.capsolver_api_key)
+        self._client = Client("en-US", captcha_solver=captcha_solver)
         self._logged_in = False
         self._since_id: str | None = None
 

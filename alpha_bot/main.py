@@ -16,6 +16,8 @@ from alpha_bot.storage.models import Signal, Tweet
 import alpha_bot.tg_intel.models  # noqa: F401 — register CallOutcome/ChannelScore with Base
 import alpha_bot.scanner.models  # noqa: F401 — register TrendingTheme/ScannerCandidate with Base
 import alpha_bot.platform_intel.models  # noqa: F401 — register PlatformToken with Base
+import alpha_bot.scoring_engine.models  # noqa: F401 — register BacktestRun/ScoringWeights with Base
+import alpha_bot.wallets.models  # noqa: F401 — register PrivateWallet/WalletTransaction/WalletCluster with Base
 from alpha_bot.storage.repository import save_signal, save_tweet, tweet_exists
 from alpha_bot.utils.logging import setup_logging
 
@@ -213,6 +215,16 @@ async def main() -> None:
         tasks.append(trend_tracker_loop())
         tasks.append(scanner_loop())
         tasks.append(daily_digest_loop())
+
+        # Watchlist degradation monitor (runs alongside scanner)
+        from alpha_bot.scanner.watchlist_monitor import (
+            watchlist_monitor_loop,
+            set_notify_fn as set_watchlist_notify,
+        )
+        if delivery:
+            set_watchlist_notify(delivery.send_text)
+        tasks.append(watchlist_monitor_loop())
+
         logger.info("Scanner ENABLED (trend poll=%ds, scan poll=%ds)",
                      settings.trend_poll_interval_seconds,
                      settings.scanner_poll_interval_seconds)
@@ -235,5 +247,48 @@ async def main() -> None:
         )
     else:
         logger.info("Platform intel disabled — set CLANKER_SCRAPER_ENABLED=true")
+
+    # Recalibration (Phase 3: weight auto-adjustment)
+    if settings.recalibrate_enabled:
+        from alpha_bot.scoring_engine.recalibrate import (
+            recalibrate_loop,
+            set_notify_fn as set_recal_notify,
+        )
+
+        if delivery:
+            set_recal_notify(delivery.send_text)
+
+        tasks.append(recalibrate_loop())
+        logger.info(
+            "Recalibration ENABLED (interval=%ds)",
+            settings.recalibrate_interval_seconds,
+        )
+    else:
+        logger.info("Recalibration disabled — set RECALIBRATE_ENABLED=true")
+
+    # Private Wallet Curation (Phase 4)
+    if settings.wallet_curation_enabled:
+        from alpha_bot.wallets.reverse_engineer import (
+            reverse_engineer_loop,
+            set_notify_fn as set_wallet_notify,
+        )
+        from alpha_bot.wallets.decay_monitor import (
+            decay_monitor_loop,
+            set_notify_fn as set_decay_notify,
+        )
+
+        if delivery:
+            set_wallet_notify(delivery.send_text)
+            set_decay_notify(delivery.send_text)
+
+        tasks.append(reverse_engineer_loop())
+        tasks.append(decay_monitor_loop())
+        logger.info(
+            "Wallet curation ENABLED (scan=%ds, decay=%ds)",
+            settings.wallet_scan_interval_seconds,
+            settings.wallet_decay_interval_seconds,
+        )
+    else:
+        logger.info("Wallet curation disabled — set WALLET_CURATION_ENABLED=true")
 
     await asyncio.gather(*tasks)

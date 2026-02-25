@@ -1,5 +1,6 @@
 """DexScreener + GeckoTerminal API clients for Solana token price lookups."""
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -147,21 +148,47 @@ _CHAIN_TO_GT_NETWORK = {
 }
 
 
+async def _gt_request(
+    client: httpx.AsyncClient, url: str, params: dict | None = None,
+    max_retries: int = 3,
+) -> dict | None:
+    """GeckoTerminal GET with retry + exponential backoff on 429."""
+    for attempt in range(max_retries + 1):
+        try:
+            resp = await client.get(
+                url, params=params, headers={"Accept": "application/json"},
+            )
+            if resp.status_code == 429:
+                if attempt < max_retries:
+                    wait = 10 * (2 ** attempt)  # 10s, 20s, 40s
+                    logger.debug("GeckoTerminal 429 — retrying in %ds (attempt %d)", wait, attempt + 1)
+                    await asyncio.sleep(wait)
+                    continue
+                logger.warning("GeckoTerminal 429 — exhausted retries for %s", url.split("/")[-1][:16])
+                return None
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as exc:
+            if attempt < max_retries and "429" in str(exc):
+                wait = 10 * (2 ** attempt)
+                await asyncio.sleep(wait)
+                continue
+            logger.warning("GeckoTerminal request failed for %s: %s", url.split("/")[-1][:16], exc)
+            return None
+    return None
+
+
 async def gt_find_pool(
     token_address: str, client: httpx.AsyncClient, chain: str = "solana",
 ) -> str | None:
     """Find the best pool address for a token via GeckoTerminal."""
     network = _CHAIN_TO_GT_NETWORK.get(chain, chain)
-    try:
-        resp = await client.get(
-            f"{GECKOTERMINAL_BASE}/networks/{network}/tokens/{token_address}/pools",
-            params={"page": 1},
-            headers={"Accept": "application/json"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except httpx.HTTPError as exc:
-        logger.warning("GeckoTerminal pool lookup failed for %s: %s", token_address[:12], exc)
+    data = await _gt_request(
+        client,
+        f"{GECKOTERMINAL_BASE}/networks/{network}/tokens/{token_address}/pools",
+        params={"page": 1},
+    )
+    if data is None:
         return None
 
     pools = data.get("data") or []
@@ -189,16 +216,12 @@ async def gt_get_ohlcv(
     Returns list of (timestamp_unix, close_price_usd) sorted oldest first.
     """
     network = _CHAIN_TO_GT_NETWORK.get(chain, chain)
-    try:
-        resp = await client.get(
-            f"{GECKOTERMINAL_BASE}/networks/{network}/pools/{pool_address}/ohlcv/{timeframe}",
-            params={"limit": limit, "currency": "usd"},
-            headers={"Accept": "application/json"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except httpx.HTTPError as exc:
-        logger.warning("GeckoTerminal OHLCV failed for %s: %s", pool_address[:12], exc)
+    data = await _gt_request(
+        client,
+        f"{GECKOTERMINAL_BASE}/networks/{network}/pools/{pool_address}/ohlcv/{timeframe}",
+        params={"limit": limit, "currency": "usd"},
+    )
+    if data is None:
         return []
 
     ohlcv_list = (

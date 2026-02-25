@@ -92,6 +92,14 @@ class TelegramDelivery(DeliveryChannel):
         self._app.add_handler(CommandHandler("trends", self._cmd_trends))
         self._app.add_handler(CommandHandler("scan", self._cmd_scan))
         self._app.add_handler(CommandHandler("platform", self._cmd_platform))
+        self._app.add_handler(CommandHandler("backtest", self._cmd_backtest))
+        self._app.add_handler(CommandHandler("weights", self._cmd_weights))
+        self._app.add_handler(CommandHandler("wallets", self._cmd_wallets))
+        self._app.add_handler(CommandHandler("clusters", self._cmd_clusters))
+        self._app.add_handler(CommandHandler("watchlist", self._cmd_watchlist))
+        self._app.add_handler(CommandHandler("active", self._cmd_active))
+        self._app.add_handler(CommandHandler("exit_check", self._cmd_exit_check))
+        self._app.add_handler(CommandHandler("status", self._cmd_status))
         return self._app
 
     @staticmethod
@@ -108,12 +116,23 @@ class TelegramDelivery(DeliveryChannel):
             "<b>Scanner:</b>\n"
             "/trends — Current trending themes\n"
             "/scan &lt;CA&gt; — Full scanner score breakdown\n"
-            "/platform &lt;CA&gt; — Platform cohort percentile\n\n"
+            "/platform &lt;CA&gt; — Platform cohort percentile\n"
+            "/watchlist — Tier 2 tokens being monitored\n\n"
+            "<b>Scoring:</b>\n"
+            "/backtest [days] — Run backtest simulation\n"
+            "/weights — Show current scoring weights\n\n"
+            "<b>Wallets:</b>\n"
+            "/wallets — Top private wallets\n"
+            "/clusters — Wallet cluster summary\n\n"
             "<b>Trading:</b>\n"
             "/positions — List open positions\n"
+            "/active — Tokens you've entered (alias for /positions)\n"
+            "/exit_check &lt;CA&gt; — Check exit conditions for a position\n"
             "/buy &lt;CA&gt; — Manual buy via Maestro\n"
             "/sell &lt;CA&gt; [pct] — Manual sell via Maestro\n"
             "/trading on|off — Toggle auto-trading\n\n"
+            "<b>System:</b>\n"
+            "/status — System health dashboard\n"
             "/help — Show this message",
             parse_mode="HTML",
         )
@@ -132,13 +151,24 @@ class TelegramDelivery(DeliveryChannel):
             "<b>Scanner:</b>\n"
             "<code>/trends</code> — Current trending themes\n"
             "<code>/scan CA_ADDRESS</code> — Full scanner score for a token\n"
-            "<code>/platform CA_ADDRESS</code> — Platform cohort percentile\n\n"
+            "<code>/platform CA_ADDRESS</code> — Platform cohort percentile\n"
+            "<code>/watchlist</code> — Tier 2 watchlist tokens\n\n"
+            "<b>Scoring:</b>\n"
+            "<code>/backtest 14</code> — Backtest last 14 days\n"
+            "<code>/weights</code> — Show current scoring weights\n\n"
+            "<b>Wallets:</b>\n"
+            "<code>/wallets</code> — Top private wallets by quality\n"
+            "<code>/clusters</code> — Wallet cluster summary\n\n"
             "<b>Trading:</b>\n"
             "<code>/positions</code> — Show open positions with P/L\n"
+            "<code>/active</code> — Alias for /positions\n"
+            "<code>/exit_check CA_ADDRESS</code> — Check exit conditions\n"
             "<code>/buy CA_ADDRESS</code> — Send buy to Maestro bot\n"
             "<code>/sell CA_ADDRESS 50</code> — Sell 50% via Maestro\n"
             "<code>/trading on</code> — Enable auto-trading\n"
-            "<code>/trading off</code> — Disable auto-trading",
+            "<code>/trading off</code> — Disable auto-trading\n\n"
+            "<b>System:</b>\n"
+            "<code>/status</code> — System health dashboard",
             parse_mode="HTML",
         )
 
@@ -885,6 +915,365 @@ class TelegramDelivery(DeliveryChannel):
 
         except Exception as exc:
             logger.exception("Platform command failed for %s", ca[:12])
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+
+    @staticmethod
+    async def _cmd_backtest(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        days = settings.backtest_default_lookback_days
+        if context.args:
+            try:
+                days = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text(
+                    "Usage: <code>/backtest [days]</code>\n"
+                    "Example: <code>/backtest 14</code>",
+                    parse_mode="HTML",
+                )
+                return
+
+        await update.message.reply_text(
+            f"Running backtest ({days}d lookback)...",
+            parse_mode="HTML",
+        )
+
+        try:
+            from alpha_bot.scoring_engine.backtest import (
+                format_backtest_report,
+                run_backtest,
+            )
+
+            run = await run_backtest(lookback_days=days)
+            text = format_backtest_report(run)
+            await update.message.reply_text(text, parse_mode="HTML")
+        except Exception as exc:
+            logger.exception("Backtest command failed")
+            await update.message.reply_text(
+                f"Backtest failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_weights(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        try:
+            from alpha_bot.scoring_engine.recalibrate import format_weights_text
+
+            text = await format_weights_text()
+            await update.message.reply_text(text, parse_mode="HTML")
+        except Exception as exc:
+            logger.exception("Weights command failed")
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_wallets(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        try:
+            from sqlalchemy import select as sa_select
+            from alpha_bot.wallets.models import PrivateWallet
+
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(PrivateWallet)
+                    .where(PrivateWallet.status != "retired")
+                    .order_by(PrivateWallet.quality_score.desc())
+                    .limit(20)
+                )
+                wallets = list(result.scalars().all())
+
+            if not wallets:
+                await update.message.reply_text(
+                    "No private wallets discovered yet.\n"
+                    "Enable wallet curation with <code>WALLET_CURATION_ENABLED=true</code>.",
+                    parse_mode="HTML",
+                )
+                return
+
+            lines = [f"<b>Private Wallets ({len(wallets)})</b>\n"]
+            for i, w in enumerate(wallets, 1):
+                addr_short = f"{w.address[:6]}...{w.address[-4:]}"
+                status_icon = {"active": "G", "decaying": "Y"}.get(w.status, "?")
+                lines.append(
+                    f"{i}. <code>{addr_short}</code> "
+                    f"Q:{w.quality_score:.0f} | "
+                    f"Wins: {w.total_wins}/{w.total_tracked} | "
+                    f"Copiers: {w.estimated_copiers} | "
+                    f"{w.status}"
+                )
+
+            text = "\n".join(lines)
+            for i in range(0, len(text), 4000):
+                await update.message.reply_text(
+                    text[i : i + 4000], parse_mode="HTML"
+                )
+        except Exception as exc:
+            logger.exception("Wallets command failed")
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_clusters(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        try:
+            from sqlalchemy import select as sa_select
+            from alpha_bot.wallets.models import WalletCluster
+
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(WalletCluster)
+                    .order_by(WalletCluster.avg_quality_score.desc())
+                    .limit(20)
+                )
+                clusters = list(result.scalars().all())
+
+            if not clusters:
+                await update.message.reply_text(
+                    "No wallet clusters built yet.",
+                    parse_mode="HTML",
+                )
+                return
+
+            lines = [f"<b>Wallet Clusters ({len(clusters)})</b>\n"]
+            for c in clusters:
+                lines.append(
+                    f"<b>{c.cluster_label}</b> — "
+                    f"{c.wallet_count} wallets | "
+                    f"Avg Q: {c.avg_quality_score:.0f} | "
+                    f"Independence: {c.independence_score:.0f}/100"
+                )
+
+            text = "\n".join(lines)
+            for i in range(0, len(text), 4000):
+                await update.message.reply_text(
+                    text[i : i + 4000], parse_mode="HTML"
+                )
+        except Exception as exc:
+            logger.exception("Clusters command failed")
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+
+    @staticmethod
+    async def _cmd_watchlist(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        try:
+            from sqlalchemy import select as sa_select
+            from alpha_bot.scanner.models import ScannerCandidate
+            import json as _json
+
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(ScannerCandidate)
+                    .where(ScannerCandidate.tier == 2)
+                    .order_by(ScannerCandidate.composite_score.desc())
+                    .limit(20)
+                )
+                candidates = list(result.scalars().all())
+
+            if not candidates:
+                await update.message.reply_text(
+                    "No Tier 2 tokens on the watchlist right now.",
+                    parse_mode="HTML",
+                )
+                return
+
+            lines = [f"<b>Watchlist — Tier 2 ({len(candidates)})</b>\n"]
+            for c in candidates:
+                themes = []
+                try:
+                    themes = _json.loads(c.matched_themes or "[]")
+                except (ValueError, TypeError):
+                    pass
+                themes_str = ", ".join(themes[:2]) if themes else "—"
+                mcap_str = _fmt_mcap(c.mcap)
+                lines.append(
+                    f"<b>${c.ticker}</b> — {c.composite_score:.0f}/100 "
+                    f"({c.platform})\n"
+                    f"  MCap: {mcap_str} | Themes: {themes_str}\n"
+                    f"  <code>{c.ca}</code>"
+                )
+
+            text = "\n".join(lines)
+            for i in range(0, len(text), 4000):
+                await update.message.reply_text(
+                    text[i : i + 4000], parse_mode="HTML"
+                )
+        except Exception as exc:
+            logger.exception("Watchlist command failed")
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_active(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        # /active is an alias for /positions (open positions = tokens you've entered)
+        await TelegramDelivery._cmd_positions(update, context)
+
+    @staticmethod
+    async def _cmd_exit_check(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: <code>/exit_check CONTRACT_ADDRESS</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        ca = context.args[0].strip()
+
+        try:
+            from alpha_bot.storage.repository import get_position_by_mint
+
+            async with async_session() as session:
+                position = await get_position_by_mint(session, ca)
+
+            if not position:
+                await update.message.reply_text(
+                    f"No open position for <code>{ca[:16]}...</code>",
+                    parse_mode="HTML",
+                )
+                return
+
+            # Fetch current price from DexScreener
+            current_price = position.current_price_usd
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    pair = await get_token_by_address(ca, client)
+                if pair:
+                    d = extract_pair_details(pair)
+                    if d.get("price_usd"):
+                        current_price = d["price_usd"]
+            except Exception:
+                pass
+
+            entry = position.entry_price_usd
+            pnl_pct = ((current_price - entry) / entry * 100) if entry > 0 else 0.0
+
+            # TP/SL distances
+            tp1_target = entry * (1 + settings.take_profit_1_pct / 100)
+            tp2_target = entry * (1 + settings.take_profit_2_pct / 100)
+            tp3_target = entry * (1 + settings.take_profit_3_pct / 100)
+            sl_target = entry * (1 + settings.stop_loss_pct / 100)
+
+            def _status_line(label: str, hit: bool, target: float) -> str:
+                if hit:
+                    return f"  {label}: HIT"
+                dist = ((target - current_price) / current_price * 100) if current_price > 0 else 0
+                return f"  {label}: {dist:+.1f}% to target (${target:.10g})"
+
+            emoji = "\U0001f7e2" if pnl_pct >= 0 else "\U0001f534"
+            text = (
+                f"{emoji} <b>Exit Check: ${position.token_symbol or ca[:8]}</b>\n\n"
+                f"Entry: ${entry:.10g}\n"
+                f"Current: ${current_price:.10g}\n"
+                f"P/L: <b>{pnl_pct:+.1f}%</b>\n\n"
+                f"<b>Targets:</b>\n"
+                f"{_status_line('TP1 (3x)', position.tp1_hit, tp1_target)}\n"
+                f"{_status_line('TP2 (5x)', position.tp2_hit, tp2_target)}\n"
+                f"{_status_line('TP3 (10x)', position.tp3_hit, tp3_target)}\n"
+                f"{_status_line('SL', position.stop_loss_hit, sl_target)}\n\n"
+                f"<code>{ca}</code>"
+            )
+
+            await update.message.reply_text(text, parse_mode="HTML")
+        except Exception as exc:
+            logger.exception("Exit check failed for %s", ca[:12])
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_status(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        try:
+            from sqlalchemy import select as sa_select, func
+
+            lines = ["<b>System Status</b>\n"]
+
+            # Feature flags
+            flags = {
+                "Scanner": settings.scanner_enabled,
+                "Platform Intel": settings.clanker_scraper_enabled,
+                "Recalibration": settings.recalibrate_enabled,
+                "Wallets": settings.wallet_curation_enabled,
+                "Trading": settings.trading_enabled,
+            }
+            flag_str = " | ".join(
+                f"{'ON' if v else 'OFF'} {k}" for k, v in flags.items()
+            )
+            lines.append(f"{flag_str}\n")
+
+            # DB counts
+            from alpha_bot.tg_intel.models import CallOutcome, ChannelScore
+            from alpha_bot.scanner.models import TrendingTheme, ScannerCandidate
+            from alpha_bot.platform_intel.models import PlatformToken
+            from alpha_bot.storage.models import Position
+
+            counts: dict[str, int] = {}
+            async with async_session() as session:
+                for label, model in [
+                    ("call_outcomes", CallOutcome),
+                    ("channel_scores", ChannelScore),
+                    ("trending_themes", TrendingTheme),
+                    ("scanner_candidates", ScannerCandidate),
+                    ("platform_tokens", PlatformToken),
+                ]:
+                    r = await session.execute(sa_select(func.count()).select_from(model))
+                    counts[label] = r.scalar() or 0
+
+                # Open positions
+                r = await session.execute(
+                    sa_select(func.count()).select_from(Position).where(Position.status == "open")
+                )
+                counts["open_positions"] = r.scalar() or 0
+
+                # Private wallets (try/except in case table doesn't exist yet)
+                try:
+                    from alpha_bot.wallets.models import PrivateWallet
+                    r = await session.execute(sa_select(func.count()).select_from(PrivateWallet))
+                    counts["private_wallets"] = r.scalar() or 0
+                except Exception:
+                    counts["private_wallets"] = 0
+
+            lines.append("<b>DB Counts:</b>")
+            for label, cnt in counts.items():
+                lines.append(f"  {label}: {cnt:,}")
+
+            # Last updated timestamps
+            lines.append("\n<b>Last Updated:</b>")
+            async with async_session() as session:
+                for label, model, col in [
+                    ("Channel scores", ChannelScore, ChannelScore.last_updated),
+                    ("Trending themes", TrendingTheme, TrendingTheme.last_updated),
+                    ("Scanner candidates", ScannerCandidate, ScannerCandidate.last_updated),
+                    ("Platform tokens", PlatformToken, PlatformToken.last_updated),
+                ]:
+                    r = await session.execute(
+                        sa_select(func.max(col))
+                    )
+                    ts = r.scalar()
+                    ts_str = ts.strftime("%Y-%m-%d %H:%M UTC") if ts else "never"
+                    lines.append(f"  {label}: {ts_str}")
+
+            text = "\n".join(lines)
+            await update.message.reply_text(text, parse_mode="HTML")
+        except Exception as exc:
+            logger.exception("Status command failed")
             await update.message.reply_text(
                 f"Failed: {exc}", parse_mode="HTML"
             )
