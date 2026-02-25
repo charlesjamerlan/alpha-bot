@@ -177,6 +177,14 @@ async def start_listener(telethon_client: TelegramClient) -> None:
             sender_name,
         )
 
+        # Extract engagement metadata for reaction velocity tracking
+        reaction_count = 0
+        if event.message.reactions:
+            for r in event.message.reactions.results:
+                reaction_count += r.count
+        forward_count = getattr(event.message, 'forwards', None) or 0
+        views = getattr(event.message, 'views', None) or 0
+
         # Record call outcome for TG intelligence scoring (fire-and-forget)
         try:
             from alpha_bot.tg_intel.recorder import record_call
@@ -190,6 +198,9 @@ async def start_listener(telethon_client: TelegramClient) -> None:
                 message_text=text[:500],
                 author=sender_name,
                 mention_timestamp=event.message.date.replace(tzinfo=None),
+                reaction_count=reaction_count,
+                forward_count=forward_count,
+                views=views,
             )
         except Exception as exc:
             logger.warning("Failed to record call outcome: %s", exc)

@@ -143,6 +143,19 @@ async def main() -> None:
         from alpha_bot.tg_intel.convergence import set_notify_fn as set_convergence_notify
         set_convergence_notify(delivery.send_text)
 
+    # Wire reaction velocity notifications + set Telethon client on recorder
+    if telethon_client is not None:
+        from alpha_bot.tg_intel.recorder import set_telethon_client
+        set_telethon_client(telethon_client)
+
+    if delivery:
+        from alpha_bot.tg_intel.reaction_velocity import set_notify_fn as set_rv_notify
+        set_rv_notify(delivery.send_text)
+
+    # Load reaction baselines from DB (avoid cold-start)
+    from alpha_bot.tg_intel.reaction_velocity import load_baselines_from_db
+    await load_baselines_from_db()
+
     # Share telethon client with TG bot commands (/buy, /sell)
     if tg_app is not None and telethon_client is not None:
         tg_app.bot_data["telethon_client"] = telethon_client

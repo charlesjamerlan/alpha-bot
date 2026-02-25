@@ -88,6 +88,7 @@ class TelegramDelivery(DeliveryChannel):
         self._app.add_handler(CommandHandler("trading", self._cmd_trading))
         self._app.add_handler(CommandHandler("channels", self._cmd_channels))
         self._app.add_handler(CommandHandler("convergence", self._cmd_convergence))
+        self._app.add_handler(CommandHandler("profile", self._cmd_profile))
         return self._app
 
     @staticmethod
@@ -99,7 +100,8 @@ class TelegramDelivery(DeliveryChannel):
             "/token &lt;CA&gt; — DexScreener token lookup\n"
             "/pnl &lt;group&gt; [days] — TG group P/L analysis\n"
             "/channels — TG channel quality rankings\n"
-            "/convergence — Recent cross-channel convergences\n\n"
+            "/convergence — Recent cross-channel convergences\n"
+            "/profile — Winning call profile (Mode 2)\n\n"
             "<b>Trading:</b>\n"
             "/positions — List open positions\n"
             "/buy &lt;CA&gt; — Manual buy via Maestro\n"
@@ -118,7 +120,8 @@ class TelegramDelivery(DeliveryChannel):
             "<code>/token CA_ADDRESS</code> — DexScreener lookup\n"
             "<code>/pnl cryptogroup 30</code> — Analyze last 30 days\n"
             "<code>/channels</code> — Show channel quality rankings\n"
-            "<code>/convergence</code> — Recent cross-channel signals\n\n"
+            "<code>/convergence</code> — Recent cross-channel signals\n"
+            "<code>/profile</code> — Winning call profile (Mode 2)\n\n"
             "<b>Trading:</b>\n"
             "<code>/positions</code> — Show open positions with P/L\n"
             "<code>/buy CA_ADDRESS</code> — Send buy to Maestro bot\n"
@@ -530,6 +533,26 @@ class TelegramDelivery(DeliveryChannel):
         for i in range(0, len(text), 4000):
             await update.message.reply_text(
                 text[i : i + 4000], parse_mode="HTML"
+            )
+
+
+    @staticmethod
+    async def _cmd_profile(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        try:
+            from alpha_bot.tg_intel.pattern_extract import (
+                extract_winning_profile,
+                format_profile_text,
+            )
+
+            profile = await extract_winning_profile()
+            text = format_profile_text(profile)
+            await update.message.reply_text(text, parse_mode="HTML")
+        except Exception as exc:
+            logger.exception("Profile command failed")
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
             )
 
 

@@ -55,6 +55,7 @@ class CallOutcome(Base):
     reaction_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reaction_velocity: Mapped[float | None] = mapped_column(Float, nullable=True)
     forward_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    views: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Status
     price_check_status: Mapped[str] = mapped_column(

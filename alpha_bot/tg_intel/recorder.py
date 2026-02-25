@@ -21,6 +21,15 @@ logger = logging.getLogger(__name__)
 # Dedup window: ignore same channel+CA within this many hours
 _DEDUP_HOURS = 4
 
+# Telethon client ref for delayed reaction re-checks
+_telethon_client = None
+
+
+def set_telethon_client(client) -> None:
+    """Store Telethon client ref for delayed message re-fetches."""
+    global _telethon_client
+    _telethon_client = client
+
 
 async def _is_duplicate(
     session: AsyncSession, channel_id: str, ca: str, mention_ts: datetime
@@ -104,6 +113,68 @@ async def _delayed_price_check(
         logger.exception("Delayed price check failed for outcome #%d (%s)", outcome_id, price_field)
 
 
+async def _delayed_reaction_check(
+    outcome_id: int, channel_id: str, message_id: int, delay: int = 1800,
+) -> None:
+    """Wait *delay* seconds, re-fetch message reactions, update outcome + velocity."""
+    await asyncio.sleep(delay)
+
+    if not _telethon_client:
+        return
+
+    try:
+        # Resolve channel entity
+        try:
+            entity = int(channel_id)
+        except ValueError:
+            entity = channel_id
+
+        msgs = await _telethon_client.get_messages(entity, ids=message_id)
+        msg = msgs if not isinstance(msgs, list) else (msgs[0] if msgs else None)
+        if not msg:
+            logger.debug("Delayed reaction check: message %d not found in %s", message_id, channel_id)
+            return
+
+        reaction_count = 0
+        if msg.reactions:
+            for r in msg.reactions.results:
+                reaction_count += r.count
+        forward_count = getattr(msg, 'forwards', None) or 0
+
+        async with async_session() as session:
+            result = await session.execute(
+                select(CallOutcome).where(CallOutcome.id == outcome_id)
+            )
+            outcome = result.scalar_one_or_none()
+            if not outcome:
+                return
+
+            outcome.reaction_count = reaction_count
+            outcome.forward_count = forward_count
+            await session.commit()
+
+        # Feed into reaction velocity tracker
+        try:
+            from alpha_bot.tg_intel.reaction_velocity import track_reaction
+            await track_reaction(
+                channel_id=channel_id,
+                channel_name="",
+                ca="",
+                ticker="",
+                reaction_count=reaction_count,
+                outcome_id=outcome_id,
+            )
+        except Exception as exc:
+            logger.warning("Reaction velocity tracking failed: %s", exc)
+
+        logger.debug(
+            "Delayed reaction check: outcome #%d updated — reactions=%d, forwards=%d",
+            outcome_id, reaction_count, forward_count,
+        )
+    except Exception:
+        logger.exception("Delayed reaction check failed for outcome #%d", outcome_id)
+
+
 async def record_call(
     ca: str,
     chain: str,
@@ -114,6 +185,9 @@ async def record_call(
     message_text: str = "",
     author: str = "",
     mention_timestamp: datetime | None = None,
+    reaction_count: int = 0,
+    forward_count: int = 0,
+    views: int = 0,
 ) -> None:
     """Record a new CA call and schedule delayed price checks.
 
@@ -158,6 +232,9 @@ async def record_call(
             price_at_mention=price_at_mention,
             mcap_at_mention=mcap,
             platform=platform,
+            reaction_count=reaction_count or None,
+            forward_count=forward_count or None,
+            views=views or None,
             price_check_status="pending",
         )
         session.add(outcome)
@@ -181,6 +258,14 @@ async def record_call(
         )
     except Exception as exc:
         logger.warning("Convergence check failed: %s", exc)
+
+    # Schedule delayed reaction re-check at +30min (fire-and-forget)
+    if _telethon_client and message_id:
+        asyncio.create_task(
+            _delayed_reaction_check(
+                outcome.id, channel_id, message_id, delay=1800,
+            )
+        )
 
     # Schedule delayed price checks (fire-and-forget)
     if price_at_mention and price_at_mention > 0:
