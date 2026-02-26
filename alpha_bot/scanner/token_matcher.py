@@ -20,6 +20,22 @@ _claude_cache: dict[str, tuple[list[str], float]] = {}
 _CLAUDE_CACHE_MAX = 200
 _CLAUDE_CACHE_TTL = 3600  # 1 hour
 
+# Stopwords: generic crypto/meme words that match everything and carry no signal
+_STOPWORDS = frozenset({
+    "meme", "coin", "crypto", "token", "buy", "sell", "best", "will",
+    "they", "ever", "what", "this", "that", "with", "from", "have",
+    "your", "about", "just", "like", "more", "been", "into", "when",
+    "does", "should", "would", "could", "really", "very", "much",
+    "some", "than", "look", "well", "most", "know", "think",
+    "price", "market", "value", "stock", "trade", "money",
+    "pump", "dump", "moon", "launch", "fair", "next", "good",
+    "gets", "says", "deal", "face", "look", "take", "make",
+    "news", "now", "new", "top", "how", "why", "all", "get",
+})
+
+# Skip themes that are too long (likely full Reddit post titles, not real themes)
+_MAX_THEME_WORDS = 5
+
 
 def _keyword_match(
     token_name: str, ticker: str, themes: list[TrendingTheme],
@@ -31,25 +47,36 @@ def _keyword_match(
 
     for theme in themes:
         t = theme.theme.lower()
+        t_words = t.split()
 
-        # Exact substring match
+        # Skip long Reddit post titles — they're not real themes
+        if len(t_words) > _MAX_THEME_WORDS:
+            continue
+
+        # Exact substring match (theme is fully contained in name or vice versa)
         if t in name_lower or t in ticker_lower or name_lower in t or ticker_lower in t:
             matches.append((theme, 1.0))
             continue
 
-        # Check individual words in theme against ticker/name
-        theme_words = t.split()
-        if any(w in name_lower or w in ticker_lower for w in theme_words if len(w) > 3):
+        # Word-level match: require non-stopword, 5+ chars to reduce noise
+        significant_words = [
+            w for w in t_words
+            if len(w) >= 5 and w not in _STOPWORDS
+        ]
+        if significant_words and any(
+            w in name_lower or w in ticker_lower for w in significant_words
+        ):
             matches.append((theme, 0.8))
             continue
 
-        # Fuzzy match
-        ratio = max(
-            SequenceMatcher(None, ticker_lower, t).ratio(),
-            SequenceMatcher(None, name_lower, t).ratio(),
-        )
-        if ratio >= _FUZZY_THRESHOLD:
-            matches.append((theme, ratio))
+        # Fuzzy match (only for short themes — long ones create false positives)
+        if len(t_words) <= 3:
+            ratio = max(
+                SequenceMatcher(None, ticker_lower, t).ratio(),
+                SequenceMatcher(None, name_lower, t).ratio(),
+            )
+            if ratio >= _FUZZY_THRESHOLD:
+                matches.append((theme, ratio))
 
     return matches
 

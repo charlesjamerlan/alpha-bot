@@ -319,8 +319,8 @@ async def clanker_realtime_loop() -> None:
 
                     scored_count += 1
 
-                    # Fire alert for Tier 1 or Tier 2
-                    if tier <= 2:
+                    # Fire alert: Tier 1 always, Tier 2 only if score >= 68
+                    if tier == 1 or (tier == 2 and composite >= 68):
                         age_str = (
                             f"{int(age_seconds)}s"
                             if age_seconds and age_seconds < 120

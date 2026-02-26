@@ -17,6 +17,46 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Stopwords to strip when extracting theme keywords from Reddit titles
+_REDDIT_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "it", "in", "on", "at", "to", "for", "of",
+    "and", "or", "but", "not", "be", "are", "was", "were", "been", "has",
+    "have", "had", "do", "does", "did", "will", "would", "could", "should",
+    "can", "may", "might", "shall", "this", "that", "these", "those",
+    "i", "you", "he", "she", "we", "they", "me", "him", "her", "us", "them",
+    "my", "your", "his", "its", "our", "their", "what", "which", "who",
+    "when", "where", "why", "how", "all", "each", "every", "both", "few",
+    "more", "most", "other", "some", "such", "no", "nor", "too", "very",
+    "just", "about", "up", "out", "if", "so", "than", "then", "here",
+    "there", "with", "from", "into", "over", "after", "before", "between",
+    "under", "again", "once", "any", "only", "own", "same", "now",
+    "also", "get", "got", "really", "even", "much", "still", "already",
+    "going", "need", "think", "know", "want", "like", "make", "take",
+    "come", "give", "look", "find", "back", "way", "long", "new", "old",
+    "big", "good", "bad", "best", "first", "last", "next", "right",
+})
+
+
+def _extract_keywords(title: str, max_words: int = 4) -> str | None:
+    """Extract meaningful keywords from a Reddit post title.
+
+    Strips stopwords, keeps up to max_words significant terms.
+    Returns None if nothing meaningful remains.
+    """
+    # Remove special chars, keep alphanumeric + spaces + $ (for tickers)
+    cleaned = re.sub(r"[^\w\s$]", " ", title.lower())
+    words = cleaned.split()
+
+    # Keep words that are non-stopwords and at least 3 chars
+    keywords = [w for w in words if w not in _REDDIT_STOPWORDS and len(w) >= 3]
+
+    if not keywords:
+        return None
+
+    # Take the first max_words significant terms
+    phrase = " ".join(keywords[:max_words])
+    return phrase if len(phrase) >= 3 else None
+
 _SUBREDDITS = [
     # Crypto
     "cryptocurrency", "solana", "CryptoMoonShots", "memecoins",
@@ -98,10 +138,13 @@ async def _fetch_via_oauth(client: httpx.AsyncClient, token: str) -> list[dict]:
             num_comments = d.get("num_comments", 0) or 0
             if not title:
                 continue
+            theme = _extract_keywords(title)
+            if not theme:
+                continue
             engagement = ups + num_comments
             results.append({
                 "source": "reddit",
-                "theme": title.lower()[:256],
+                "theme": theme,
                 "volume": engagement,
                 "velocity": float(engagement),
                 "category": f"r/{sub}",
@@ -132,13 +175,12 @@ async def _fetch_via_rss(client: httpx.AsyncClient) -> list[dict]:
             )
             # Skip first title (feed title) and last if it's the subreddit name
             for title in titles[1:26]:
-                theme = title.strip()
-                if not theme or len(theme) < 5:
+                theme = _extract_keywords(title.strip())
+                if not theme:
                     continue
-                # RSS doesn't have engagement scores, use 0
                 results.append({
                     "source": "reddit",
-                    "theme": theme.lower()[:256],
+                    "theme": theme,
                     "volume": 0,
                     "velocity": 0.0,
                     "category": f"r/{sub}",
@@ -179,10 +221,13 @@ async def _fetch_via_json(client: httpx.AsyncClient) -> list[dict]:
             num_comments = d.get("num_comments", 0) or 0
             if not title:
                 continue
+            theme = _extract_keywords(title)
+            if not theme:
+                continue
             engagement = ups + num_comments
             results.append({
                 "source": "reddit",
-                "theme": title.lower()[:256],
+                "theme": theme,
                 "volume": engagement,
                 "velocity": float(engagement),
                 "category": f"r/{sub}",
