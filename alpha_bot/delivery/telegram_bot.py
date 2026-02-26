@@ -99,6 +99,7 @@ class TelegramDelivery(DeliveryChannel):
         self._app.add_handler(CommandHandler("watchlist", self._cmd_watchlist))
         self._app.add_handler(CommandHandler("addwallet", self._cmd_addwallet))
         self._app.add_handler(CommandHandler("addtheme", self._cmd_addtheme))
+        self._app.add_handler(CommandHandler("conviction", self._cmd_conviction))
         self._app.add_handler(CommandHandler("active", self._cmd_active))
         self._app.add_handler(CommandHandler("exit_check", self._cmd_exit_check))
         self._app.add_handler(CommandHandler("status", self._cmd_status))
@@ -114,6 +115,7 @@ class TelegramDelivery(DeliveryChannel):
             "/pnl &lt;group&gt; [days] — TG group P/L analysis\n"
             "/channels — TG channel quality rankings\n"
             "/convergence — Recent cross-channel convergences\n"
+            "/conviction — High-conviction multi-source alerts\n"
             "/profile — Winning call profile (Mode 2)\n\n"
             "<b>Scanner:</b>\n"
             "/trends — Current trending themes\n"
@@ -151,6 +153,7 @@ class TelegramDelivery(DeliveryChannel):
             "<code>/pnl cryptogroup 30</code> — Analyze last 30 days\n"
             "<code>/channels</code> — Show channel quality rankings\n"
             "<code>/convergence</code> — Recent cross-channel signals\n"
+            "<code>/conviction</code> — High-conviction multi-source alerts\n"
             "<code>/profile</code> — Winning call profile (Mode 2)\n\n"
             "<b>Scanner:</b>\n"
             "<code>/trends</code> — Current trending themes\n"
@@ -1262,6 +1265,55 @@ class TelegramDelivery(DeliveryChannel):
             )
 
     @staticmethod
+    async def _cmd_conviction(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        try:
+            from alpha_bot.conviction.engine import get_recent_convictions
+
+            convictions = get_recent_convictions()
+            if not convictions:
+                await update.message.reply_text(
+                    "No conviction alerts in the current window.\n"
+                    "Conviction fires when 2+ independent sources flag the same CA.",
+                    parse_mode="HTML",
+                )
+                return
+
+            lines = [f"<b>Conviction Alerts ({len(convictions)})</b>\n"]
+            for c in convictions:
+                ca = c["ca"]
+                ca_short = f"{ca[:6]}...{ca[-4:]}" if len(ca) > 12 else ca
+                ticker = c.get("ticker") or "?"
+                score = c.get("conviction_score", 0)
+                n = c.get("distinct_sources", 0)
+                ago = ""
+                if c.get("alerted_at"):
+                    delta = datetime.utcnow() - c["alerted_at"]
+                    ago_min = max(int(delta.total_seconds() / 60), 0)
+                    ago = f" — {ago_min}m ago"
+
+                sources = c.get("sources", {})
+                src_names = ", ".join(sources.keys())
+
+                lines.append(
+                    f"<b>${ticker}</b> — {score:.0f}/100 "
+                    f"({n} sources: {src_names}){ago}\n"
+                    f"  <code>{ca_short}</code>"
+                )
+
+            text = "\n".join(lines)
+            for i in range(0, len(text), 4000):
+                await update.message.reply_text(
+                    text[i : i + 4000], parse_mode="HTML"
+                )
+        except Exception as exc:
+            logger.exception("Conviction command failed")
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
     async def _cmd_active(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -1357,6 +1409,7 @@ class TelegramDelivery(DeliveryChannel):
                 "Platform Intel": settings.clanker_scraper_enabled,
                 "Realtime Deploy": settings.clanker_realtime_enabled,
                 "Wallet Monitor": settings.wallet_buy_monitor_enabled,
+                "Conviction": settings.conviction_enabled,
                 "Recalibration": settings.recalibrate_enabled,
                 "Wallets": settings.wallet_curation_enabled,
                 "Trading": settings.trading_enabled,

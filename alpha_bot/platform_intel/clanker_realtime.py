@@ -319,6 +319,23 @@ async def clanker_realtime_loop() -> None:
 
                     scored_count += 1
 
+                    # Conviction signal registration
+                    try:
+                        from alpha_bot.conviction.engine import register_signal, compute_clanker_weight
+                        await register_signal(
+                            ca=ca,
+                            source="clanker_realtime",
+                            weight=compute_clanker_weight(tier, composite),
+                            metadata={
+                                "tier": tier,
+                                "composite_score": composite,
+                                "ticker": symbol,
+                                "chain": "base",
+                            },
+                        )
+                    except Exception:
+                        pass
+
                     # Fire alert: Tier 1 always, Tier 2 only if score >= 68
                     if tier == 1 or (tier == 2 and composite >= 68):
                         age_str = (

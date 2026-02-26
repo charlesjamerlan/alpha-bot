@@ -119,6 +119,15 @@ class Settings(BaseSettings):
     clanker_realtime_enabled: bool = False
     clanker_realtime_interval_seconds: int = 15
 
+    # Conviction Alert System
+    conviction_enabled: bool = False
+    conviction_window_minutes: int = 30
+    conviction_min_score: float = 50.0
+    conviction_cooldown_minutes: int = 60
+
+    # X/Twitter signal ingestion
+    x_ingest_api_key: str = ""
+
     # Smart Wallet Buy Monitor
     wallet_buy_monitor_enabled: bool = False
     wallet_buy_monitor_interval_seconds: int = 60

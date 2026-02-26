@@ -259,6 +259,28 @@ async def record_call(
     except Exception as exc:
         logger.warning("Convergence check failed: %s", exc)
 
+    # Conviction signal registration
+    try:
+        from alpha_bot.conviction.engine import register_signal, compute_tg_weight
+        from alpha_bot.tg_intel.convergence import _load_channel_quality
+
+        quality_map = await _load_channel_quality([channel_id])
+        channel_quality = quality_map.get(channel_id, 50.0)
+        await register_signal(
+            ca=ca,
+            source="tg_mention",
+            weight=compute_tg_weight(channel_quality),
+            metadata={
+                "channel_name": channel_name,
+                "channel_id": channel_id,
+                "channel_quality": channel_quality,
+                "ticker": ticker,
+                "chain": chain,
+            },
+        )
+    except Exception:
+        pass
+
     # Schedule delayed reaction re-check at +30min (fire-and-forget)
     if _telethon_client and message_id:
         asyncio.create_task(

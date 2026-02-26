@@ -172,13 +172,37 @@ async def check_convergence(
     )
 
     # Mark as alerted
+    now = datetime.utcnow()
     _alerted_cas[ca] = {
-        "alerted_at": datetime.utcnow(),
+        "alerted_at": now,
         "ticker": display_ticker,
         "chain": alert_chain,
         "confidence": confidence,
         "channels": count,
     }
+
+    # Persist to DB so dashboard survives restarts
+    try:
+        from alpha_bot.storage.database import async_session as _async_session
+        from alpha_bot.tg_intel.models import ConvergenceAlert
+
+        names = ", ".join(
+            c.get("channel_name") or c.get("channel_id", "")
+            for c in calls[:count]
+        )
+        async with _async_session() as sess:
+            sess.add(ConvergenceAlert(
+                ca=ca,
+                ticker=display_ticker,
+                chain=alert_chain,
+                confidence=confidence,
+                channels=count,
+                channel_names=names,
+                alerted_at=now,
+            ))
+            await sess.commit()
+    except Exception as exc:
+        logger.warning("Failed to persist convergence to DB: %s", exc)
 
     logger.info(
         "Convergence detected: %s (%s) — %d channels, confidence=%.2f",
@@ -193,7 +217,7 @@ async def check_convergence(
 
 
 def get_recent_convergences() -> list[dict[str, Any]]:
-    """Return recent convergence signals for display."""
+    """Return recent convergence signals for display (in-memory only, sync)."""
     _prune_old_entries()
     results = []
     for ca, info in _alerted_cas.items():
@@ -208,3 +232,33 @@ def get_recent_convergences() -> list[dict[str, Any]]:
     # Most recent first
     results.sort(key=lambda r: r.get("alerted_at") or datetime.min, reverse=True)
     return results
+
+
+async def get_recent_convergences_db(
+    session: Any,
+    hours: int = 24,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Return recent convergences from DB — survives restarts."""
+    from sqlalchemy import select
+    from alpha_bot.tg_intel.models import ConvergenceAlert
+
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    result = await session.execute(
+        select(ConvergenceAlert)
+        .where(ConvergenceAlert.alerted_at >= cutoff)
+        .order_by(ConvergenceAlert.alerted_at.desc())
+        .limit(limit)
+    )
+    rows = list(result.scalars().all())
+    return [
+        {
+            "ca": r.ca,
+            "ticker": r.ticker,
+            "chain": r.chain,
+            "confidence": r.confidence,
+            "channels": r.channels,
+            "alerted_at": r.alerted_at,
+        }
+        for r in rows
+    ]

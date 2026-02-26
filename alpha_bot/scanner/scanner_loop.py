@@ -209,6 +209,23 @@ async def scanner_loop() -> None:
                 await _save_candidate(candidate)
                 new_count += 1
 
+                # Conviction signal registration
+                try:
+                    from alpha_bot.conviction.engine import register_signal, compute_scanner_weight
+                    await register_signal(
+                        ca=ca,
+                        source="scanner",
+                        weight=compute_scanner_weight(tier, composite),
+                        metadata={
+                            "tier": tier,
+                            "composite_score": composite,
+                            "ticker": ticker,
+                            "chain": token.get("chain", "base"),
+                        },
+                    )
+                except Exception:
+                    pass
+
                 # Fire alert for Tier 1
                 if tier == 1:
                     await fire_scanner_alert(candidate)

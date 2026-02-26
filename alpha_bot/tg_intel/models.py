@@ -112,3 +112,25 @@ class ChannelScore(Base):
     )
 
     __table_args__ = (Index("ix_channel_scores_quality", "quality_score"),)
+
+
+class ConvergenceAlert(Base):
+    """Persisted convergence alert — survives restarts."""
+
+    __tablename__ = "convergence_alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ca: Mapped[str] = mapped_column(String(64), nullable=False)
+    ticker: Mapped[str] = mapped_column(String(32), default="")
+    chain: Mapped[str] = mapped_column(String(16), default="base")
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    channels: Mapped[int] = mapped_column(Integer, default=0)
+    channel_names: Mapped[str] = mapped_column(Text, default="")  # comma-separated
+    alerted_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_convergence_alerts_ca", "ca"),
+        Index("ix_convergence_alerts_at", "alerted_at"),
+    )

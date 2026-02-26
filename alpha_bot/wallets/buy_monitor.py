@@ -230,6 +230,23 @@ async def wallet_buy_monitor_loop() -> None:
 
                         new_buys += 1
 
+                        # Conviction signal registration
+                        try:
+                            from alpha_bot.conviction.engine import register_signal, compute_wallet_weight
+                            await register_signal(
+                                ca=token_ca,
+                                source="wallet_buy",
+                                weight=compute_wallet_weight(wallet.quality_score),
+                                metadata={
+                                    "wallet_address": addr,
+                                    "wallet_quality": wallet.quality_score,
+                                    "ticker": token_symbol,
+                                    "chain": "base",
+                                },
+                            )
+                        except Exception:
+                            pass
+
                         # Track for cluster convergence
                         _recent_buys[token_ca].append(
                             (addr, wallet.cluster_id, datetime.utcnow())

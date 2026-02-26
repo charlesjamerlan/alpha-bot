@@ -118,6 +118,8 @@ def extract_pair_details(pair: dict) -> dict:
     except (ValueError, TypeError):
         pass
 
+    txns = pair.get("txns") or {}
+
     return {
         "symbol": base.get("symbol", "???").upper(),
         "name": base.get("name", ""),
@@ -130,9 +132,16 @@ def extract_pair_details(pair: dict) -> dict:
         "price_change_1h": price_change.get("h1"),
         "price_change_6h": price_change.get("h6"),
         "price_change_24h": price_change.get("h24"),
+        "txns_24h_buys": txns.get("h24", {}).get("buys"),
+        "txns_24h_sells": txns.get("h24", {}).get("sells"),
+        "txns_1h_buys": txns.get("h1", {}).get("buys"),
+        "txns_1h_sells": txns.get("h1", {}).get("sells"),
+        "txns_5m_buys": txns.get("m5", {}).get("buys"),
+        "txns_5m_sells": txns.get("m5", {}).get("sells"),
         "pair_address": pair.get("pairAddress", ""),
         "dex": pair.get("dexId", ""),
         "pair_created_at": pair.get("pairCreatedAt"),
+        "dex_url": pair.get("url"),
     }
 
 

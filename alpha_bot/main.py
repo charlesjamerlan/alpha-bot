@@ -18,6 +18,8 @@ import alpha_bot.scanner.models  # noqa: F401 — register TrendingTheme/Scanner
 import alpha_bot.platform_intel.models  # noqa: F401 — register PlatformToken with Base
 import alpha_bot.scoring_engine.models  # noqa: F401 — register BacktestRun/ScoringWeights with Base
 import alpha_bot.wallets.models  # noqa: F401 — register PrivateWallet/WalletTransaction/WalletCluster with Base
+import alpha_bot.conviction.models  # noqa: F401 — register ConvictionAlert with Base
+import alpha_bot.x_intel.models  # noqa: F401 — register XSignal with Base
 from alpha_bot.storage.repository import save_signal, save_tweet, tweet_exists
 from alpha_bot.utils.logging import setup_logging
 
@@ -146,6 +148,19 @@ async def main() -> None:
     if delivery:
         from alpha_bot.tg_intel.convergence import set_notify_fn as set_convergence_notify
         set_convergence_notify(delivery.send_text)
+
+    # Wire conviction notifications (reactive — no async loop needed)
+    if settings.conviction_enabled:
+        from alpha_bot.conviction.engine import set_notify_fn as set_conviction_notify
+        if delivery:
+            set_conviction_notify(delivery.send_text)
+        logger.info(
+            "Conviction alerts ENABLED (window=%dm, min_score=%.0f)",
+            settings.conviction_window_minutes,
+            settings.conviction_min_score,
+        )
+    else:
+        logger.info("Conviction alerts disabled — set CONVICTION_ENABLED=true")
 
     # Wire reaction velocity notifications + set Telethon client on recorder
     if telethon_client is not None:
