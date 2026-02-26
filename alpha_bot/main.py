@@ -196,6 +196,12 @@ async def main() -> None:
             settings.telegram_monitor_groups or "(none)",
         )
 
+    # Channel scorer — periodically recomputes channel quality from call outcomes
+    if telethon_client is not None:
+        from alpha_bot.tg_intel.scorer import channel_scorer_loop
+        tasks.append(channel_scorer_loop())
+        logger.info("Channel scorer loop ENABLED (recomputes every hour)")
+
     # Price monitor (only when trading is enabled)
     if settings.trading_enabled and telethon_client is not None:
         from alpha_bot.trading.price_monitor import price_monitor_loop

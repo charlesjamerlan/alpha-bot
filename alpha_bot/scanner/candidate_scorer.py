@@ -58,6 +58,7 @@ _SOURCE_BONUS = {
     "profile": 60,
     "new_pairs": 40,
     "tg": 70,
+    "realtime_deploy": 60,
 }
 
 
@@ -155,14 +156,38 @@ def compute_composite(
     w = _get_weights()
     source_score = float(_SOURCE_BONUS.get(discovery_source, 40))
 
-    composite = (
-        w["narrative"] * narrative_score
-        + w["depth"] * depth_score
-        + w["profile"] * profile_match_score
-        + w["platform"] * platform_score
-        + w["market"] * market_score
-        + w["source"] * source_score
-    )
+    # Build {signal_name: (weight, score)} for active signals
+    signals = {
+        "narrative": (w["narrative"], narrative_score),
+        "depth": (w["depth"], depth_score),
+        "profile": (w["profile"], profile_match_score),
+        "platform": (w["platform"], platform_score),
+        "market": (w["market"], market_score),
+        "source": (w["source"], source_score),
+    }
+
+    # Redistribute weight from unavailable signals (score == 0 AND data
+    # genuinely missing — not just a low-scoring token).  Profile is
+    # unavailable when no winning profile has been built yet; platform is
+    # unavailable when there's no cohort data for the token.
+    unavailable_weight = 0.0
+    available_weight = 0.0
+    for name, (wt, sc) in signals.items():
+        if name in ("profile", "platform") and sc == 0.0:
+            unavailable_weight += wt
+        else:
+            available_weight += wt
+
+    # Compute composite, scaling available signals up if some are unavailable
+    if unavailable_weight > 0 and available_weight > 0:
+        scale = 1.0 / available_weight  # normalise so available weights sum to 1
+        composite = sum(
+            wt * scale * sc
+            for name, (wt, sc) in signals.items()
+            if not (name in ("profile", "platform") and sc == 0.0)
+        )
+    else:
+        composite = sum(wt * sc for wt, sc in signals.values())
 
     composite = round(min(composite, 100.0), 1)
 

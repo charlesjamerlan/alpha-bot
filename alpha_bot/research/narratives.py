@@ -47,6 +47,20 @@ NARRATIVES: dict[str, list[str]] = {
         "sec", "etf", "regulation", "congress", "fed", "fomc",
         "rate cut", "cpi", "inflation", "macro", "institutional",
     ],
+    "Politics / Culture War": [
+        "trump", "biden", "vance", "musk", "elon", "vivek",
+        "election", "maga", "liberal", "conservative", "senate",
+        "tariff", "executive order", "political",
+    ],
+    "Pop Culture / Viral": [
+        "tiktok", "viral", "trend", "celebrity", "movie",
+        "netflix", "anime", "pokemon", "looksmaxxing", "rizz",
+        "skibidi", "brainrot", "fanum", "griddy", "hawk tuah",
+    ],
+    "Animals / Mascots": [
+        "dog", "cat", "frog", "pepe", "doge", "shiba",
+        "penguin", "monkey", "bear", "bull", "panda",
+    ],
 }
 
 

@@ -215,9 +215,13 @@ async def clanker_realtime_loop() -> None:
                         pt.reached_500k = mcap >= 500_000
                         pt.reached_1m = mcap >= 1_000_000
 
-                    async with async_session() as session:
-                        session.add(pt)
-                        await session.commit()
+                    try:
+                        async with async_session() as session:
+                            session.add(pt)
+                            await session.commit()
+                    except Exception:
+                        # Duplicate CA — already ingested by 6h scraper or prior run
+                        continue
 
                     new_count += 1
 
@@ -306,9 +310,12 @@ async def clanker_realtime_loop() -> None:
                             discovered_at=now,
                             last_updated=now,
                         )
-                        async with async_session() as session:
-                            session.add(candidate)
-                            await session.commit()
+                        try:
+                            async with async_session() as session:
+                                session.add(candidate)
+                                await session.commit()
+                        except Exception:
+                            pass  # duplicate CA
 
                     scored_count += 1
 

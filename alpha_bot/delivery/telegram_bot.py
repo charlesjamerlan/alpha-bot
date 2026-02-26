@@ -98,6 +98,7 @@ class TelegramDelivery(DeliveryChannel):
         self._app.add_handler(CommandHandler("clusters", self._cmd_clusters))
         self._app.add_handler(CommandHandler("watchlist", self._cmd_watchlist))
         self._app.add_handler(CommandHandler("addwallet", self._cmd_addwallet))
+        self._app.add_handler(CommandHandler("addtheme", self._cmd_addtheme))
         self._app.add_handler(CommandHandler("active", self._cmd_active))
         self._app.add_handler(CommandHandler("exit_check", self._cmd_exit_check))
         self._app.add_handler(CommandHandler("status", self._cmd_status))
@@ -118,7 +119,8 @@ class TelegramDelivery(DeliveryChannel):
             "/trends — Current trending themes\n"
             "/scan &lt;CA&gt; — Full scanner score breakdown\n"
             "/platform &lt;CA&gt; — Platform cohort percentile\n"
-            "/watchlist — Tier 2 tokens being monitored\n\n"
+            "/watchlist — Tier 2 tokens being monitored\n"
+            "/addtheme &lt;theme&gt; — Inject a narrative theme\n\n"
             "<b>Scoring:</b>\n"
             "/backtest [days] — Run backtest simulation\n"
             "/weights — Show current scoring weights\n\n"
@@ -154,7 +156,8 @@ class TelegramDelivery(DeliveryChannel):
             "<code>/trends</code> — Current trending themes\n"
             "<code>/scan CA_ADDRESS</code> — Full scanner score for a token\n"
             "<code>/platform CA_ADDRESS</code> — Platform cohort percentile\n"
-            "<code>/watchlist</code> — Tier 2 watchlist tokens\n\n"
+            "<code>/watchlist</code> — Tier 2 watchlist tokens\n"
+            "<code>/addtheme ai agent</code> — Inject a narrative theme\n\n"
             "<b>Scoring:</b>\n"
             "<code>/backtest 14</code> — Backtest last 14 days\n"
             "<code>/weights</code> — Show current scoring weights\n\n"
@@ -1130,6 +1133,78 @@ class TelegramDelivery(DeliveryChannel):
             )
         except Exception as exc:
             logger.exception("Add wallet failed for %s", address[:12])
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_addtheme(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: <code>/addtheme THEME</code>\n"
+                "Example: <code>/addtheme jd vance</code>\n"
+                "Example: <code>/addtheme ai agent</code>\n\n"
+                "Injects a theme into the narrative matching system.",
+                parse_mode="HTML",
+            )
+            return
+
+        theme = " ".join(context.args).strip().lower()
+        if len(theme) < 2 or len(theme) > 256:
+            await update.message.reply_text(
+                "Theme must be 2-256 characters.", parse_mode="HTML"
+            )
+            return
+
+        try:
+            from datetime import datetime
+            from sqlalchemy import select as sa_select
+            from alpha_bot.scanner.models import TrendingTheme
+
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(TrendingTheme).where(
+                        TrendingTheme.source == "manual",
+                        TrendingTheme.theme == theme,
+                    )
+                )
+                existing = result.scalar_one_or_none()
+
+                if existing:
+                    # Boost velocity on re-add
+                    existing.velocity = max(existing.velocity, 100.0)
+                    existing.last_updated = datetime.utcnow()
+                    await session.commit()
+                    await update.message.reply_text(
+                        f'Theme "{theme}" already exists — velocity boosted to {existing.velocity:.0f}.',
+                        parse_mode="HTML",
+                    )
+                    return
+
+                now = datetime.utcnow()
+                row = TrendingTheme(
+                    source="manual",
+                    theme=theme,
+                    velocity=100.0,  # high default so it gets matched
+                    current_volume=100,
+                    previous_volume=0,
+                    category="manual",
+                    first_seen=now,
+                    last_updated=now,
+                )
+                session.add(row)
+                await session.commit()
+
+            await update.message.reply_text(
+                f'Added theme: "<b>{theme}</b>"\n'
+                f"Source: manual | Velocity: 100\n\n"
+                f"Tokens matching this theme will now score higher on narrative.",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.exception("Add theme failed for %s", theme[:32])
             await update.message.reply_text(
                 f"Failed: {exc}", parse_mode="HTML"
             )

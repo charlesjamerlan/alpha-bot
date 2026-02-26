@@ -22,12 +22,13 @@ logger = logging.getLogger(__name__)
 
 
 async def extract_winning_profile(
-    min_hit_rate: float = 0.3,
-    min_sample: int = 5,
+    min_hit_rate: float = 0.0,
+    min_sample: int = 2,
 ) -> dict | None:
     """Extract the statistical winning call profile.
 
     Filters to 2x+ winning calls from channels with hit_rate_2x >= min_hit_rate.
+    Falls back to ALL winning calls if no channels meet the hit rate.
     Returns a dict with the profile, or None if insufficient data.
     """
     async with async_session() as session:
@@ -39,22 +40,26 @@ async def extract_winning_profile(
         )
         qualifying_channels = list(ch_result.scalars().all())
 
-        if not qualifying_channels:
-            logger.info("No channels meet min_hit_rate=%.2f", min_hit_rate)
-            return None
-
-        channel_ids = [ch.channel_id for ch in qualifying_channels]
-
-        # Load winning calls from those channels
-        co_result = await session.execute(
-            select(CallOutcome).where(
-                and_(
-                    CallOutcome.channel_id.in_(channel_ids),
+        if qualifying_channels:
+            channel_ids = [ch.channel_id for ch in qualifying_channels]
+            co_result = await session.execute(
+                select(CallOutcome).where(
+                    and_(
+                        CallOutcome.channel_id.in_(channel_ids),
+                        CallOutcome.hit_2x == True,  # noqa: E712
+                    )
+                )
+            )
+            winners = list(co_result.scalars().all())
+        else:
+            # Fallback: grab ALL winning calls regardless of channel quality
+            logger.info("No channels meet min_hit_rate=%.2f, using all winners", min_hit_rate)
+            co_result = await session.execute(
+                select(CallOutcome).where(
                     CallOutcome.hit_2x == True,  # noqa: E712
                 )
             )
-        )
-        winners = list(co_result.scalars().all())
+            winners = list(co_result.scalars().all())
 
     if len(winners) < min_sample:
         logger.info(

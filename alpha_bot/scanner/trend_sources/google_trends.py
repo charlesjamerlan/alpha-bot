@@ -10,9 +10,16 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Seed terms to pull related rising queries for
+# Seed terms to pull related rising queries for — covers crypto + culture
 _SEED_TERMS = [
+    # Crypto-native
     "crypto", "meme coin", "AI agent", "base chain", "solana",
+    # Politics / macro
+    "trump", "elon musk", "congress crypto",
+    # Pop culture / memes
+    "viral meme", "tiktok trend",
+    # Tech / AI
+    "chatgpt", "AI startup",
 ]
 
 

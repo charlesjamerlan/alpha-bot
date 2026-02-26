@@ -17,7 +17,13 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_SUBREDDITS = ["cryptocurrency", "solana", "CryptoMoonShots", "memecoins"]
+_SUBREDDITS = [
+    # Crypto
+    "cryptocurrency", "solana", "CryptoMoonShots", "memecoins",
+    # Culture / memes / trending (tokens often mirror cultural events)
+    "wallstreetbets", "politics", "technology", "memes",
+    "OutOfTheLoop",  # "what's going on with X?" = early trend signal
+]
 
 _USER_AGENT = "linux:alpha-bot-scanner:v1.0 (by /u/crypto_trend_scanner)"
 

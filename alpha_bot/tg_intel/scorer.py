@@ -1,5 +1,6 @@
 """Aggregate call_outcomes into channel_scores."""
 
+import asyncio
 import logging
 import statistics
 from collections import defaultdict
@@ -11,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from alpha_bot.tg_intel.models import CallOutcome, ChannelScore
 
 logger = logging.getLogger(__name__)
+
+# Recompute interval (default 1 hour)
+_RESCORE_INTERVAL = 3600
 
 
 def _median(values: list[float]) -> float:
@@ -143,7 +147,12 @@ async def compute_channel_scores(session: AsyncSession) -> list[ChannelScore]:
     scores = []
     for channel_id, outcomes in by_channel.items():
         total = len(outcomes)
-        resolved = [o for o in outcomes if o.price_check_status == "complete"]
+        # Accept both "complete" and "partial" (has price_at_mention + some ROI)
+        resolved = [
+            o for o in outcomes
+            if o.price_check_status in ("complete", "partial")
+            and o.price_at_mention is not None
+        ]
         resolved_count = len(resolved)
 
         if resolved_count == 0:
@@ -229,3 +238,25 @@ async def save_channel_scores(
         session.add(s)
     await session.commit()
     logger.info("Saved %d channel scores", len(scores))
+
+
+async def channel_scorer_loop() -> None:
+    """Periodically recompute channel scores from call_outcomes."""
+    from alpha_bot.storage.database import async_session
+
+    logger.info("Channel scorer loop started (interval=%ds)", _RESCORE_INTERVAL)
+    while True:
+        try:
+            async with async_session() as session:
+                scores = await compute_channel_scores(session)
+                if scores:
+                    await save_channel_scores(session, scores)
+                    resolved_total = sum(s.resolved_calls for s in scores)
+                    logger.info(
+                        "Channel scorer: %d channels, %d resolved calls",
+                        len(scores), resolved_total,
+                    )
+        except Exception:
+            logger.exception("Channel scorer loop error")
+
+        await asyncio.sleep(_RESCORE_INTERVAL)
