@@ -225,6 +225,12 @@ async def clanker_realtime_loop() -> None:
 
                     new_count += 1
 
+                    # Gate: skip scoring if no real market data from DexScreener.
+                    # Brand-new deploys with 0 mcap/liq aren't tradeable yet —
+                    # they'll get picked up by the 6h lifecycle checker later.
+                    if not mcap or not liq:
+                        continue
+
                     # --- Scoring pipeline ---
                     age_seconds = None
                     if deploy_ts:
@@ -336,8 +342,11 @@ async def clanker_realtime_loop() -> None:
                     except Exception:
                         pass
 
-                    # Fire alert: Tier 1 always, Tier 2 only if score >= 68
-                    if tier == 1 or (tier == 2 and composite >= 68):
+                    # Fire alert: Tier 1 if score >= 72, Tier 2 only if
+                    # score >= 72 AND has real market backing (not just narrative)
+                    if tier == 1 and composite >= 72 or (
+                        tier == 2 and composite >= 72 and mkt_score >= 15
+                    ):
                         age_str = (
                             f"{int(age_seconds)}s"
                             if age_seconds and age_seconds < 120
