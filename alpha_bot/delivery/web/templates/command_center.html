@@ -165,60 +165,51 @@
 </section>
 {% endif %}
 
-{# ── Smart Wallets ── #}
-{% if smart_wallets %}
-<section class="panel-section wallet-section">
-    <h3>Smart Wallets <span class="wallet-count">({{ smart_wallets|length }})</span></h3>
-    <div class="wallet-table-wrap">
-        <table class="wallet-table">
-            <thead>
-                <tr>
-                    <th>Address</th>
-                    <th>Entity / Label</th>
-                    <th>Q</th>
-                    <th>Wins</th>
-                    <th>Type</th>
-                    <th>Links</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for w in smart_wallets %}
-                <tr class="wallet-row">
-                    <td class="wallet-addr">
-                        <code>{{ w.address[:6] }}...{{ w.address[-4:] }}</code>
-                        <button class="copy-ca-sm" onclick="copyCA('{{ w.address }}')" title="Copy">&#x2398;</button>
-                    </td>
-                    <td class="wallet-label-cell">
-                        {% if w.entity_name %}
-                            <span class="entity-badge entity-{{ w.entity_type }}">{{ w.entity_type|upper }}</span>
-                            <span class="wallet-entity-name">{{ w.entity_name }}</span>
-                        {% elif w.label %}
-                            <span class="wallet-label-text">{{ w.label[:40] }}</span>
-                        {% else %}
-                            <span class="wallet-label-text muted">—</span>
-                        {% endif %}
-                        {% if w.ens_name %}
-                        <span class="wallet-ens">{{ w.ens_name }}</span>
-                        {% endif %}
-                    </td>
-                    <td class="wallet-q {% if w.quality_score >= 80 %}q-high{% elif w.quality_score >= 50 %}q-mid{% else %}q-low{% endif %}">
-                        {{ w.quality_score|int }}
-                    </td>
-                    <td class="wallet-wins">{{ w.total_wins }}</td>
-                    <td class="wallet-source">{{ w.source }}</td>
-                    <td class="wallet-links">
-                        <a href="https://basescan.org/address/{{ w.address }}" target="_blank" rel="noopener" title="BaseScan">&#x2197;</a>
-                        <a href="https://debank.com/profile/{{ w.address }}" target="_blank" rel="noopener" title="DeBank">&#x1F4B0;</a>
-                    </td>
-                </tr>
+{# ── X/Twitter Intel ── #}
+{% if x_signals %}
+<section class="panel-section x-section">
+    <h3>X / Twitter Intel <span class="x-count">({{ x_signals|length }})</span></h3>
+    <div class="x-signal-grid">
+        {% for x in x_signals %}
+        <div class="x-card">
+            <div class="x-card-top">
+                <span class="x-author">@{{ x.author }}</span>
+                <span class="x-followers">{{ x.followers_str }}</span>
+                <span class="x-type x-type-{{ x.signal_type }}">{{ x.signal_type }}</span>
+                <span class="x-time">{{ x.tweeted_at | timeago }}</span>
+            </div>
+            {% if x.cashtags %}
+            <div class="x-cashtags">
+                {% for tag in x.cashtags %}
+                <span class="x-cashtag">{{ tag }}</span>
                 {% endfor %}
-            </tbody>
-        </table>
+            </div>
+            {% endif %}
+            {% if x.text %}
+            <div class="x-text">{{ x.text }}</div>
+            {% endif %}
+            <div class="x-card-bottom">
+                {% if x.ca %}
+                <code class="x-ca">{{ x.ca[:8] }}...{{ x.ca[-4:] }}</code>
+                <button class="copy-ca-sm" onclick="copyCA('{{ x.ca }}')" title="Copy CA">&#x2398;</button>
+                <a class="dex-link-sm" href="https://dexscreener.com/{{ x.chain }}/{{ x.ca }}" target="_blank" rel="noopener" title="DexScreener">&#x2197;</a>
+                <button class="scan-btn-sm" onclick="scanCA('{{ x.ca }}')" title="Scan">&#x2316;</button>
+                {% endif %}
+                {% if x.tweet_url %}
+                <a class="x-tweet-link" href="{{ x.tweet_url }}" target="_blank" rel="noopener" title="View tweet">&#x1D54F;</a>
+                {% endif %}
+                <span class="x-chain-badge x-chain-{{ x.chain }}">{{ x.chain }}</span>
+            </div>
+        </div>
+        {% endfor %}
     </div>
 </section>
 {% endif %}
 
-{# ── Live Signal Feed (full width, auto-refreshes via HTMX) ── #}
+{# ── Live Feed + Smart Wallets (2/3 + 1/3 layout) ── #}
+<div class="feed-wallet-grid">
+
+{# ── Live Signal Feed (2/3 width, auto-refreshes via HTMX) ── #}
 <section class="panel-section feed-section">
     <div class="feed-head">
         <h3>Live Feed</h3>
@@ -246,6 +237,56 @@
         {% include "_feed_partial.html" %}
     </div>
 </section>
+
+{# ── Smart Wallets (1/3 sidebar) ── #}
+{% if smart_wallets %}
+<section class="panel-section wallet-section">
+    <h3>Smart Wallets <span class="wallet-count">({{ smart_wallets|length }})</span></h3>
+    <div class="wallet-table-wrap">
+        <table class="wallet-table">
+            <thead>
+                <tr>
+                    <th>Wallet</th>
+                    <th>Q</th>
+                    <th>W</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for w in smart_wallets %}
+                <tr class="wallet-row">
+                    <td class="wallet-info-cell">
+                        <div class="wallet-addr-line">
+                            <code>{{ w.address[:6] }}...{{ w.address[-4:] }}</code>
+                            <button class="copy-ca-sm" onclick="copyCA('{{ w.address }}')" title="Copy">&#x2398;</button>
+                            <a href="https://basescan.org/address/{{ w.address }}" target="_blank" rel="noopener" title="BaseScan" class="wallet-ext-link">&#x2197;</a>
+                        </div>
+                        {% if w.entity_name %}
+                        <div class="wallet-entity-line">
+                            <span class="entity-badge entity-{{ w.entity_type }}">{{ w.entity_type|upper }}</span>
+                            <span class="wallet-entity-name">{{ w.entity_name }}</span>
+                        </div>
+                        {% elif w.label %}
+                        <div class="wallet-entity-line">
+                            <span class="wallet-label-text">{{ w.label[:30] }}</span>
+                        </div>
+                        {% endif %}
+                        {% if w.ens_name %}
+                        <div class="wallet-ens">{{ w.ens_name }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="wallet-q {% if w.quality_score >= 80 %}q-high{% elif w.quality_score >= 50 %}q-mid{% else %}q-low{% endif %}">
+                        {{ w.quality_score|int }}
+                    </td>
+                    <td class="wallet-wins">{{ w.total_wins }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+</div>{# /feed-wallet-grid #}
 
 <script>
 function copyCA(ca) {

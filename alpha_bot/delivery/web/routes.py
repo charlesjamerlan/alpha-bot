@@ -340,6 +340,52 @@ async def command_center(request: Request, db: AsyncSession = Depends(get_db)):
         logger.warning("Failed to load smart wallets: %s", exc)
 
 
+    # ── X/Twitter Signals (latest 20) ──
+    x_signals: list[dict] = []
+    try:
+        from alpha_bot.x_intel.models import XSignal
+
+        xs_result = await db.execute(
+            sa_select(XSignal)
+            .order_by(XSignal.ingested_at.desc())
+            .limit(20)
+        )
+        for xs in xs_result.scalars().all():
+            cashtags_list = []
+            try:
+                cashtags_list = json.loads(xs.cashtags) if xs.cashtags else []
+            except (json.JSONDecodeError, TypeError):
+                pass
+            cas_list = []
+            try:
+                cas_list = json.loads(xs.contract_addresses) if xs.contract_addresses else []
+            except (json.JSONDecodeError, TypeError):
+                pass
+            ca_val = cas_list[0] if cas_list else ""
+            chain = "solana" if ca_val and not ca_val.startswith("0x") and len(ca_val) > 30 else "base"
+            followers = xs.author_followers or 0
+            if followers >= 1_000_000:
+                f_str = "%.1fM" % (followers / 1_000_000)
+            elif followers >= 1000:
+                f_str = "%dK" % (followers // 1000)
+            else:
+                f_str = str(followers) if followers else "?"
+            x_signals.append({
+                "author": xs.author_username,
+                "followers": followers,
+                "followers_str": f_str,
+                "signal_type": xs.signal_type,
+                "cashtags": cashtags_list,
+                "ca": ca_val,
+                "chain": chain,
+                "tweet_url": xs.tweet_url or "",
+                "text": (xs.text or "")[:120],
+                "tweeted_at": xs.tweeted_at,
+                "processed": xs.processed,
+            })
+    except Exception as exc:
+        logger.warning("Failed to load X signals: %s", exc)
+
     feed = await _build_feed(db)
 
     return templates.TemplateResponse(
@@ -349,6 +395,7 @@ async def command_center(request: Request, db: AsyncSession = Depends(get_db)):
             "conviction_alerts": conviction_alerts,
             "active_entities": active_entities,
             "smart_wallets": smart_wallets,
+            "x_signals": x_signals,
             "feed": feed,
             "scan_result": None,
             "scan_error": None,
@@ -701,6 +748,52 @@ async def quick_scan(request: Request, db: AsyncSession = Depends(get_db)):
     except Exception:
         pass
 
+    # ── X/Twitter Signals (latest 20) ──
+    x_signals: list[dict] = []
+    try:
+        from alpha_bot.x_intel.models import XSignal as XS2
+
+        xs_result = await db.execute(
+            sa_select(XS2)
+            .order_by(XS2.ingested_at.desc())
+            .limit(20)
+        )
+        for xs in xs_result.scalars().all():
+            cashtags_list = []
+            try:
+                cashtags_list = json.loads(xs.cashtags) if xs.cashtags else []
+            except (json.JSONDecodeError, TypeError):
+                pass
+            cas_list = []
+            try:
+                cas_list = json.loads(xs.contract_addresses) if xs.contract_addresses else []
+            except (json.JSONDecodeError, TypeError):
+                pass
+            ca_val = cas_list[0] if cas_list else ""
+            chain = "solana" if ca_val and not ca_val.startswith("0x") and len(ca_val) > 30 else "base"
+            followers = xs.author_followers or 0
+            if followers >= 1_000_000:
+                f_str = "%.1fM" % (followers / 1_000_000)
+            elif followers >= 1000:
+                f_str = "%dK" % (followers // 1000)
+            else:
+                f_str = str(followers) if followers else "?"
+            x_signals.append({
+                "author": xs.author_username,
+                "followers": followers,
+                "followers_str": f_str,
+                "signal_type": xs.signal_type,
+                "cashtags": cashtags_list,
+                "ca": ca_val,
+                "chain": chain,
+                "tweet_url": xs.tweet_url or "",
+                "text": (xs.text or "")[:120],
+                "tweeted_at": xs.tweeted_at,
+                "processed": xs.processed,
+            })
+    except Exception:
+        pass
+
     return templates.TemplateResponse(
         "command_center.html",
         {
@@ -708,6 +801,7 @@ async def quick_scan(request: Request, db: AsyncSession = Depends(get_db)):
             "conviction_alerts": conviction_alerts,
             "active_entities": active_entities,
             "smart_wallets": smart_wallets,
+            "x_signals": x_signals,
             "feed": feed,
             "scan_result": scan_result,
             "scan_error": scan_error,
