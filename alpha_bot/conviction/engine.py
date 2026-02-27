@@ -90,6 +90,22 @@ def compute_clanker_weight(tier: int, composite: float) -> float:
     return 8.0 + min((composite / 100.0) * 7.0, 7.0)
 
 
+def compute_x_weight(signal_type: str, followers: int | None) -> float:
+    """X/Twitter signal weight: 5-35 based on signal type and KOL reach."""
+    base = {
+        "kol_mention": 15.0,
+        "exit_signal": 20.0,
+        "narrative": 10.0,
+        "cashtag": 8.0,
+    }.get(signal_type, 8.0)
+
+    # Scale up to +10 based on follower count (cap at 500K)
+    f = followers or 0
+    follower_bonus = min(f / 500_000 * 10.0, 10.0)
+
+    return min(base + follower_bonus, 35.0)
+
+
 # ---------------------------------------------------------------------------
 # Core engine
 # ---------------------------------------------------------------------------
@@ -224,6 +240,12 @@ async def register_signal(
             tier = evt.metadata.get("tier", "?")
             comp = evt.metadata.get("composite_score", 0)
             source_lines.append(f"  Clanker: Tier {tier} (score: {comp:.0f}) -- {ago_str}")
+        elif src == "x_kol":
+            author = evt.metadata.get("author", "?")
+            followers = evt.metadata.get("followers", 0)
+            sig_type = evt.metadata.get("signal_type", "mention")
+            f_str = f"{followers // 1000}K" if followers and followers >= 1000 else str(followers or "?")
+            source_lines.append(f"  X: @{author} ({f_str} followers, {sig_type}) -- {ago_str}")
         else:
             source_lines.append(f"  {src}: weight {evt.weight:.0f} -- {ago_str}")
 

@@ -266,10 +266,35 @@ async def wallet_buy_monitor_loop() -> None:
                                 token_info["liquidity_usd"] if token_info else None
                             )
 
+                            # Entity resolution
+                            entity_line = ""
+                            try:
+                                from alpha_bot.wallets.entity_resolver import get_entity_by_address
+                                entity = await get_entity_by_address(addr)
+                                if entity and entity.entity_name:
+                                    org_str = f", {entity.organization}" if entity.organization else ""
+                                    entity_line = (
+                                        f"Entity: <b>{entity.entity_name}</b> "
+                                        f"({entity.entity_type.upper()}{org_str})\n"
+                                    )
+                                elif settings.entity_resolution_enabled and wallet.quality_score >= 70:
+                                    # Background resolve for high-quality unknown wallets
+                                    from alpha_bot.wallets.entity_resolver import resolve_entity
+                                    entity = await resolve_entity(addr)
+                                    if entity and entity.entity_name:
+                                        org_str = f", {entity.organization}" if entity.organization else ""
+                                        entity_line = (
+                                            f"Entity: <b>{entity.entity_name}</b> "
+                                            f"({entity.entity_type.upper()}{org_str})\n"
+                                        )
+                            except Exception:
+                                pass
+
                             addr_short = f"{addr[:6]}...{addr[-4:]}"
                             alert_text = (
                                 f"\U0001f45b <b>WALLET BUY: ${symbol}</b>\n\n"
                                 f"Wallet: <code>{addr_short}</code> (Q: {wallet.quality_score:.0f}/100)\n"
+                                f"{entity_line}"
                                 f"Status: {wallet.status.title()} | "
                                 f"Copiers: {wallet.estimated_copiers}\n\n"
                                 f"Token: ${symbol} | Chain: Base\n"

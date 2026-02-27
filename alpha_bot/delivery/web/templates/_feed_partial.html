@@ -1,0 +1,41 @@
+{% if feed %}
+<div class="feed-table" id="feed-table">
+    <div class="feed-header-row">
+        <span>Source</span>
+        <span>Token</span>
+        <span>Score</span>
+        <span>MCap</span>
+        <span>Change</span>
+        <span>Signal</span>
+        <span>When</span>
+    </div>
+    {% for item in feed %}
+    <div class="feed-row-rich {% if item.rec == 'BUY' %}feed-rec-buy{% endif %}" data-source="{{ item.source_type }}" data-signal="{{ item.rec or '' }}">
+        <span class="feed-badge feed-badge-{{ item.source_type|lower }}">{{ item.source_type }}</span>
+        <span class="feed-token">
+            <span class="feed-ticker">${{ item.ticker or '?' }}</span>
+            {% if item.platform %}<span class="feed-plat">{{ item.platform }}</span>{% endif %}
+            <button class="copy-ca-sm" onclick="copyCA('{{ item.ca }}')" title="Copy CA">&#x2398;</button>
+            <a class="dex-link-sm" href="https://dexscreener.com/{{ item.chain or 'base' }}/{{ item.ca }}" target="_blank" rel="noopener" title="DexScreener">&#x2197;</a>
+            <button class="scan-btn-sm" onclick="scanCA('{{ item.ca }}')" title="Scan">&#x2316;</button>
+        </span>
+        <span class="feed-score-cell">
+            {% if item.score is not none %}
+            <span class="feed-score-val {% if item.score >= 80 %}fs-high{% elif item.score >= 60 %}fs-mid{% else %}fs-low{% endif %}">{{ item.score|int }}</span>
+            {% else %}
+            <span class="feed-score-val fs-na">&mdash;</span>
+            {% endif %}
+        </span>
+        <span class="feed-mcap mono">{{ item.mcap_str or '&mdash;' }}</span>
+        <span class="feed-change mono {% if item.change and item.change > 0 %}pnl-up{% elif item.change and item.change < 0 %}pnl-down{% endif %}">
+            {% if item.change is not none %}{{ '%+.0f' | format(item.change) }}%{% else %}&mdash;{% endif %}
+        </span>
+        <span class="feed-signal">{{ item.signal_str or '' }}</span>
+        <span class="feed-time">{{ item.timestamp | timeago }}</span>
+    </div>
+    {% endfor %}
+</div>
+<div class="empty-small" id="feed-empty" style="display:none">No signals match filters</div>
+{% else %}
+<div class="empty-small">No recent signals</div>
+{% endif %}

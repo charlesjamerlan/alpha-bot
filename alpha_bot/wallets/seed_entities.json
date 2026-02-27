@@ -1,0 +1,440 @@
+[
+  {
+    "address": "0x05e793ce0c6027323ac150f6d45c2344d28b6019",
+    "entity_type": "vc",
+    "entity_name": "a16z",
+    "organization": "Andreessen Horowitz"
+  },
+  {
+    "address": "0x1db3439a222c519ab44bb1144fc28167b4fa6ee6",
+    "entity_type": "vc",
+    "entity_name": "a16z (Vb 2)",
+    "organization": "Andreessen Horowitz"
+  },
+  {
+    "address": "0x9845e1909dca337944a0272f1f9f7249833d2d19",
+    "entity_type": "vc",
+    "entity_name": "Paradigm Operations",
+    "organization": "Paradigm"
+  },
+  {
+    "address": "0xd61415f6c5d93027778ceab5f099f64c29f58fd7",
+    "entity_type": "vc",
+    "entity_name": "paradigm.eth",
+    "organization": "Paradigm"
+  },
+  {
+    "address": "0xe4abc54f5a6288b60c18b361442a151fc4911da6",
+    "entity_type": "vc",
+    "entity_name": "Polychain Capital",
+    "organization": "Polychain"
+  },
+  {
+    "address": "0x2c169dfe5fbba12957bdd0ba47d9cedbfe260ca7",
+    "entity_type": "vc",
+    "entity_name": "Polychain Capital 2",
+    "organization": "Polychain"
+  },
+  {
+    "address": "0xe5b5cf0e5d044c3e984b910dbc89b19186d24b03",
+    "entity_type": "vc",
+    "entity_name": "Pantera Capital",
+    "organization": "Pantera Capital"
+  },
+  {
+    "address": "0x33566c9d8be6cf0b23795e0d380e112be9d75836",
+    "entity_type": "vc",
+    "entity_name": "Galaxy Digital OTC",
+    "organization": "Galaxy Digital"
+  },
+  {
+    "address": "0xf0984860f1f31a784c0ff0bb4d1322e377f97631",
+    "entity_type": "fund",
+    "entity_name": "DWF Labs (EVM Secondary Market)",
+    "organization": "DWF Labs"
+  },
+  {
+    "address": "0xd4b69e8d62c880e9dd55d419d5e07435c3538342",
+    "entity_type": "fund",
+    "entity_name": "DWF Labs 2",
+    "organization": "DWF Labs"
+  },
+  {
+    "address": "0xddacad3b1edee8e2f5b2e84f658202534fcb0374",
+    "entity_type": "fund",
+    "entity_name": "DWF Labs 3",
+    "organization": "DWF Labs"
+  },
+  {
+    "address": "0xdbf5e9c5206d0db70a90108bf936da60221dc080",
+    "entity_type": "fund",
+    "entity_name": "Wintermute",
+    "organization": "Wintermute Trading"
+  },
+  {
+    "address": "0x0000006daea1723962647b7e189d311d757fb793",
+    "entity_type": "fund",
+    "entity_name": "Wintermute 1 (Vanity)",
+    "organization": "Wintermute Trading"
+  },
+  {
+    "address": "0xf584f8728b874a6a5c7a8d4d387c9aae9172d621",
+    "entity_type": "fund",
+    "entity_name": "Jump Trading",
+    "organization": "Jump Crypto"
+  },
+  {
+    "address": "0x9507c04b10486547584c37bcbd931b2a4fee9a41",
+    "entity_type": "fund",
+    "entity_name": "Jump Trading 2",
+    "organization": "Jump Crypto"
+  },
+  {
+    "address": "0xf05e2a70346560d3228c7002194bb7c5dc8fe100",
+    "entity_type": "fund",
+    "entity_name": "Jump Trading: Binance Deposit",
+    "organization": "Jump Crypto"
+  },
+  {
+    "address": "0xe62240a57f0efbf549e278e8058f632af3ea5206",
+    "entity_type": "fund",
+    "entity_name": "Jump Trading: Coinbase Deposit",
+    "organization": "Jump Crypto"
+  },
+  {
+    "address": "0x9695cfaa368718dd6790a6f57b633d83f565893e",
+    "entity_type": "fund",
+    "entity_name": "Alameda Research",
+    "organization": "Alameda/FTX"
+  },
+  {
+    "address": "0x712d0f306956a6a4b4f9319ad9b9de48c5345996",
+    "entity_type": "fund",
+    "entity_name": "Alameda Research 2",
+    "organization": "Alameda/FTX"
+  },
+  {
+    "address": "0x84d34f4f83a87596cd3fb6887cff8f17bf5a7b83",
+    "entity_type": "fund",
+    "entity_name": "Alameda Research 25",
+    "organization": "Alameda/FTX"
+  },
+  {
+    "address": "0x97137466bc8018531795217f0ecc4ba24dcba5c1",
+    "entity_type": "fund",
+    "entity_name": "Alameda Research 24",
+    "organization": "Alameda/FTX"
+  },
+  {
+    "address": "0x4c8cfe078a5b989cea4b330197246ced82764c63",
+    "entity_type": "fund",
+    "entity_name": "Alameda Research 27",
+    "organization": "Alameda/FTX"
+  },
+  {
+    "address": "0x002a5dc50bbb8d5808e418aeeb9f060a2ca17346",
+    "entity_type": "vc",
+    "entity_name": "Dragonfly Capital 1",
+    "organization": "Dragonfly"
+  },
+  {
+    "address": "0x50495480cce225c8476e90466d8615a9e6a5e004",
+    "entity_type": "vc",
+    "entity_name": "Dragonfly Capital (Compound Voting)",
+    "organization": "Dragonfly"
+  },
+  {
+    "address": "0xc8d328b21f476a4b6e0681f6e4e41693a220347d",
+    "entity_type": "vc",
+    "entity_name": "Multicoin Capital",
+    "organization": "Multicoin"
+  },
+  {
+    "address": "0xe7925d190aea9279400cd9a005e33ceb9389cc2b",
+    "entity_type": "vc",
+    "entity_name": "Variant Fund",
+    "organization": "Variant"
+  },
+  {
+    "address": "0x5608169973d639649196a84ee4085a708bcbf397",
+    "entity_type": "vc",
+    "entity_name": "Micky Malka",
+    "organization": "Ribbit Capital"
+  },
+  {
+    "address": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+    "entity_type": "kol",
+    "entity_name": "Vitalik Buterin (vitalik.eth)",
+    "organization": "Ethereum Foundation"
+  },
+  {
+    "address": "0xab5801a7d398351b8be11c439e05c5b3259aec9b",
+    "entity_type": "kol",
+    "entity_name": "Vitalik Buterin (Vb)",
+    "organization": "Ethereum Foundation"
+  },
+  {
+    "address": "0x4cbe68d825d21cb4978f56815613eed06cf30152",
+    "entity_type": "kol",
+    "entity_name": "Cobie (LUNA Bet Escrow)",
+    "organization": null
+  },
+  {
+    "address": "0x8e1d8b147cc4c939a597dc501c47cc8b4ab26bd5",
+    "entity_type": "whale",
+    "entity_name": "Tetranode",
+    "organization": null
+  },
+  {
+    "address": "0xe9825fd47c5d863b1aecba3707abcc7c8b49b88d",
+    "entity_type": "kol",
+    "entity_name": "Ansem (blknoiz06)",
+    "organization": null
+  },
+  {
+    "address": "0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43",
+    "entity_type": "institution",
+    "entity_name": "Coinbase Deposit",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x71660c4005ba85c37ccec55d0c4493e66fe775d3",
+    "entity_type": "institution",
+    "entity_name": "Coinbase 1",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x503828976d22510aad0201ac7ec88293211d23da",
+    "entity_type": "institution",
+    "entity_name": "Coinbase 12",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0xb5d85cbf7cb3ee0d56b3bb207d5fc4b82f43f511",
+    "entity_type": "institution",
+    "entity_name": "Coinbase 44",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0xddfabcdc4d8ffc6d5beaf154f18b778f892a0740",
+    "entity_type": "institution",
+    "entity_name": "Coinbase 23",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x3cd751e6b0078be393132286c442345e5dc49699",
+    "entity_type": "institution",
+    "entity_name": "Coinbase 33",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x90e63c3d53e0ea496845b7a03ec7548b70014a91",
+    "entity_type": "institution",
+    "entity_name": "Coinbase Cold 6",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x281055afc982d96fab65b3a49cac8b878184cb16",
+    "entity_type": "institution",
+    "entity_name": "Coinbase Cold 3",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0xa090e606e30bd747d4e6245a1517ebe430f0057e",
+    "entity_type": "institution",
+    "entity_name": "Coinbase: Miscellaneous",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x382ffce2287252f930e1c8dc9328dac5bf282ba1",
+    "entity_type": "institution",
+    "entity_name": "Coinbase: Fees",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x881d4032abe4188e2237efcd27ab435e81fc6bb1",
+    "entity_type": "institution",
+    "entity_name": "Coinbase Commerce",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0xf6874c88757721a02f47592140905c4336dfbc61",
+    "entity_type": "institution",
+    "entity_name": "Coinbase Commerce 2",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x28c6c06298d514db089934071355e5743bf21d60",
+    "entity_type": "institution",
+    "entity_name": "Binance 14",
+    "organization": "Binance"
+  },
+  {
+    "address": "0xf977814e90da44bfa03b6295a0616a897441acec",
+    "entity_type": "institution",
+    "entity_name": "Binance: Hot Wallet 20",
+    "organization": "Binance"
+  },
+  {
+    "address": "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",
+    "entity_type": "institution",
+    "entity_name": "Binance",
+    "organization": "Binance"
+  },
+  {
+    "address": "0x21a31ee1afc51d94c2efccaa2092ad1028285549",
+    "entity_type": "institution",
+    "entity_name": "Binance 15",
+    "organization": "Binance"
+  },
+  {
+    "address": "0xdfd5293d8e347dfe59e90efd55b2956a1343963d",
+    "entity_type": "institution",
+    "entity_name": "Binance 2",
+    "organization": "Binance"
+  },
+  {
+    "address": "0x6cc5f688a315f3dc28a7781717a9a798a59fda7b",
+    "entity_type": "institution",
+    "entity_name": "OKX",
+    "organization": "OKX"
+  },
+  {
+    "address": "0xf89d7b9c864f589bbf53a82105107622b35eaa40",
+    "entity_type": "institution",
+    "entity_name": "Bybit: Hot Wallet",
+    "organization": "Bybit"
+  },
+  {
+    "address": "0x1db92e2eebc8e0c075a02bea49a2935bcd2dfcf4",
+    "entity_type": "institution",
+    "entity_name": "Bybit: Cold Wallet 1",
+    "organization": "Bybit"
+  },
+  {
+    "address": "0x849151d7d0bf1f34b70d5cad5149d28cc2308bf1",
+    "entity_type": "team",
+    "entity_name": "Jesse Pollak (jesse.base.eth)",
+    "organization": "Coinbase / Base"
+  },
+  {
+    "address": "0x49048044d57e1c92a77f79988d21fa8faf74e97e",
+    "entity_type": "team",
+    "entity_name": "Base Portal (ETH Deposit Bridge)",
+    "organization": "Base / Coinbase"
+  },
+  {
+    "address": "0x3154cf16ccdb4c6d922629664174b904d80f2c35",
+    "entity_type": "team",
+    "entity_name": "Base Bridge (L1 StandardBridge)",
+    "organization": "Base / Coinbase"
+  },
+  {
+    "address": "0x375c15db32d28cecdcab5c03ab889bf15cbd2c5e",
+    "entity_type": "team",
+    "entity_name": "Clanker Deployer v3",
+    "organization": "Clanker"
+  },
+  {
+    "address": "0xe85a59c628f7d27878aceb4bf3b35733630083a9",
+    "entity_type": "team",
+    "entity_name": "Clanker v4.0.0 Factory",
+    "organization": "Clanker"
+  },
+  {
+    "address": "0x732560fa1d1a76350b1a500155ba978031b53833",
+    "entity_type": "team",
+    "entity_name": "Clanker Deployer v2",
+    "organization": "Clanker"
+  },
+  {
+    "address": "0x9b84fce5dcd9a38d2d01d5d72373f6b6b067c3e1",
+    "entity_type": "team",
+    "entity_name": "Clanker Deployer v1",
+    "organization": "Clanker"
+  },
+  {
+    "address": "0x250c9fb2b411b48273f69879007803790a6aea47",
+    "entity_type": "team",
+    "entity_name": "Clanker SocialDexDeployer v0",
+    "organization": "Clanker"
+  },
+  {
+    "address": "0x5cc4a43f2681a03d9187f3ad6934c748a86d6119",
+    "entity_type": "team",
+    "entity_name": "Clanker SocialDexDeployer (v3)",
+    "organization": "Clanker"
+  },
+  {
+    "address": "0x1bc0c42215582d5a085795f4badbac3ff36d1bcb",
+    "entity_type": "team",
+    "entity_name": "CLANKER Token",
+    "organization": "Clanker"
+  },
+  {
+    "address": "0xf3622742b1e446d92e45e22923ef11c2fcd55d68",
+    "entity_type": "team",
+    "entity_name": "Clanker Fee Locker v4",
+    "organization": "Clanker"
+  },
+  {
+    "address": "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b",
+    "entity_type": "team",
+    "entity_name": "VIRTUAL Token (Base)",
+    "organization": "Virtuals Protocol"
+  },
+  {
+    "address": "0x44ff8620b8ca30902395a7bd3f2407e1a091bf73",
+    "entity_type": "team",
+    "entity_name": "VIRTUAL Token (Ethereum)",
+    "organization": "Virtuals Protocol"
+  },
+  {
+    "address": "0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43",
+    "entity_type": "team",
+    "entity_name": "Aerodrome Router",
+    "organization": "Aerodrome Finance"
+  },
+  {
+    "address": "0x940181a94a35a4569e4529a3cdfb74e38fd98631",
+    "entity_type": "team",
+    "entity_name": "AERO Token",
+    "organization": "Aerodrome Finance"
+  },
+  {
+    "address": "0x7830c87c02e56aff27fa8ab1241711331fa86f43",
+    "entity_type": "institution",
+    "entity_name": "Coinbase: Deposit",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0xedc7001e99a37c3d23b5f7974f837387e09f9c93",
+    "entity_type": "institution",
+    "entity_name": "Coinbase Deposit 2",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x56eddb7aa87536c09ccc2793473599fd21a8b17f",
+    "entity_type": "institution",
+    "entity_name": "OKX 2",
+    "organization": "OKX"
+  },
+  {
+    "address": "0xa726c00cda1f60aaab19bc095d02a46556837f31",
+    "entity_type": "fund",
+    "entity_name": "Alameda Research: WBTC Merchant",
+    "organization": "Alameda/FTX"
+  },
+  {
+    "address": "0x8df6084e3b84a65ab9dd2325b5422e5debd8944a",
+    "entity_type": "institution",
+    "entity_name": "Coinbase: Wallet Swap Proxy",
+    "organization": "Coinbase"
+  },
+  {
+    "address": "0x220866b1a2219f40e72f5c628b65d54268ca3a9d",
+    "entity_type": "kol",
+    "entity_name": "Vitalik Buterin (Vb 3)",
+    "organization": "Ethereum Foundation"
+  }
+]

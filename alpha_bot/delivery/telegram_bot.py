@@ -99,6 +99,9 @@ class TelegramDelivery(DeliveryChannel):
         self._app.add_handler(CommandHandler("watchlist", self._cmd_watchlist))
         self._app.add_handler(CommandHandler("addwallet", self._cmd_addwallet))
         self._app.add_handler(CommandHandler("addtheme", self._cmd_addtheme))
+        self._app.add_handler(CommandHandler("whois", self._cmd_whois))
+        self._app.add_handler(CommandHandler("tagwallet", self._cmd_tagwallet))
+        self._app.add_handler(CommandHandler("xray", self._cmd_xray))
         self._app.add_handler(CommandHandler("conviction", self._cmd_conviction))
         self._app.add_handler(CommandHandler("active", self._cmd_active))
         self._app.add_handler(CommandHandler("exit_check", self._cmd_exit_check))
@@ -129,7 +132,9 @@ class TelegramDelivery(DeliveryChannel):
             "<b>Wallets:</b>\n"
             "/wallets — Top private wallets\n"
             "/clusters — Wallet cluster summary\n"
-            "/addwallet &lt;ADDR&gt; [label] — Add wallet manually\n\n"
+            "/addwallet &lt;ADDR&gt; [label] — Add wallet manually\n"
+            "/whois &lt;ADDR&gt; — Look up wallet entity\n"
+            "/tagwallet &lt;ADDR&gt; &lt;type&gt; &lt;name&gt; — Tag wallet entity\n\n"
             "<b>Trading:</b>\n"
             "/positions — List open positions\n"
             "/active — Tokens you've entered (alias for /positions)\n"
@@ -167,7 +172,10 @@ class TelegramDelivery(DeliveryChannel):
             "<b>Wallets:</b>\n"
             "<code>/wallets</code> — Top private wallets by quality\n"
             "<code>/clusters</code> — Wallet cluster summary\n"
-            "<code>/addwallet 0xABC... alpha1</code> — Add wallet manually\n\n"
+            "<code>/addwallet 0xABC... alpha1</code> — Add wallet manually\n"
+            "<code>/whois 0xABC...</code> — Look up wallet entity\n"
+            "<code>/tagwallet 0xABC... kol CryptoGems</code> — Tag entity\n"
+            "<code>/xray ADDRESS</code> — X-ray early buyers (Base + Solana)\n\n"
             "<b>Trading:</b>\n"
             "<code>/positions</code> — Show open positions with P/L\n"
             "<code>/active</code> — Alias for /positions\n"
@@ -1138,6 +1146,340 @@ class TelegramDelivery(DeliveryChannel):
             logger.exception("Add wallet failed for %s", address[:12])
             await update.message.reply_text(
                 f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_whois(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: <code>/whois ADDRESS</code>\n"
+                "Example: <code>/whois 0xd8da6bf26964af9d7eed9e03e53415d37aa96045</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        address = context.args[0].strip().lower()
+        if not address.startswith("0x") or len(address) != 42:
+            await update.message.reply_text(
+                "Invalid address. Must be a 42-char 0x-prefixed address.",
+                parse_mode="HTML",
+            )
+            return
+
+        try:
+            from alpha_bot.wallets.entity_resolver import get_entity_by_address, resolve_entity
+            from alpha_bot.wallets.models import PrivateWallet
+            from sqlalchemy import select as sa_select
+
+            # Check entity
+            entity = await get_entity_by_address(address)
+            if not entity and settings.entity_resolution_enabled:
+                await update.message.reply_text(
+                    f"Resolving <code>{address[:10]}...</code>",
+                    parse_mode="HTML",
+                )
+                entity = await resolve_entity(address)
+
+            # Check private wallet
+            wallet = None
+            async with async_session() as session:
+                result = await session.execute(
+                    sa_select(PrivateWallet).where(PrivateWallet.address == address)
+                )
+                wallet = result.scalar_one_or_none()
+
+            addr_short = f"{address[:6]}...{address[-4:]}"
+            lines = [f"<b>Whois: <code>{addr_short}</code></b>\n"]
+
+            if entity:
+                lines.append(f"Entity: <b>{entity.entity_name}</b>")
+                lines.append(f"Type: {entity.entity_type.upper()}")
+                if entity.organization:
+                    lines.append(f"Org: {entity.organization}")
+                if entity.ens_name:
+                    lines.append(f"ENS: {entity.ens_name}")
+                lines.append(f"Source: {entity.resolution_source} (conf: {entity.confidence:.1f})")
+                if entity.notes:
+                    lines.append(f"Notes: {entity.notes}")
+            else:
+                lines.append("Entity: <i>unknown</i>")
+
+            if wallet:
+                lines.append(f"\nWallet Q: {wallet.quality_score:.0f}/100")
+                lines.append(f"Wins: {wallet.total_wins}/{wallet.total_tracked}")
+                lines.append(f"Status: {wallet.status}")
+                if wallet.cluster_id is not None:
+                    lines.append(f"Cluster: {wallet.cluster_id}")
+                lines.append(f"Copiers: {wallet.estimated_copiers}")
+
+            lines.append(f"\n<code>{address}</code>")
+
+            await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        except Exception as exc:
+            logger.exception("Whois command failed for %s", address[:12])
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_tagwallet(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if not context.args or len(context.args) < 3:
+            await update.message.reply_text(
+                "Usage: <code>/tagwallet ADDRESS TYPE NAME</code>\n"
+                "Types: vc, kol, fund, institution, whale, team, deployer\n\n"
+                "Example: <code>/tagwallet 0xABC... kol CryptoGems</code>\n"
+                "Example: <code>/tagwallet 0xABC... vc Micky Malka</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        address = context.args[0].strip().lower()
+        if not address.startswith("0x") or len(address) != 42:
+            await update.message.reply_text(
+                "Invalid address.", parse_mode="HTML"
+            )
+            return
+
+        entity_type = context.args[1].strip().lower()
+        valid_types = {"vc", "kol", "fund", "institution", "whale", "team", "deployer", "unknown"}
+        if entity_type not in valid_types:
+            await update.message.reply_text(
+                f"Invalid type. Must be one of: {', '.join(sorted(valid_types))}",
+                parse_mode="HTML",
+            )
+            return
+
+        entity_name = " ".join(context.args[2:]).strip()
+        if not entity_name:
+            await update.message.reply_text(
+                "Name is required.", parse_mode="HTML"
+            )
+            return
+
+        try:
+            from alpha_bot.wallets.entity_resolver import tag_wallet_entity
+
+            entity = await tag_wallet_entity(
+                address=address,
+                entity_type=entity_type,
+                entity_name=entity_name,
+            )
+
+            addr_short = f"{address[:6]}...{address[-4:]}"
+            await update.message.reply_text(
+                f"Tagged <code>{addr_short}</code> as:\n"
+                f"<b>{entity.entity_name}</b> ({entity.entity_type.upper()})\n"
+                f"Source: manual | Confidence: 1.0",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.exception("Tag wallet failed for %s", address[:12])
+            await update.message.reply_text(
+                f"Failed: {exc}", parse_mode="HTML"
+            )
+
+    @staticmethod
+    async def _cmd_xray(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Reverse-engineer a token's early buyers — find smart wallets and known entities."""
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: <code>/xray ADDRESS [count]</code>\n\n"
+                "Scans early buyers of a token and shows:\n"
+                "- Known smart wallets from our private list\n"
+                "- Resolved entities (VCs, KOLs, funds)\n"
+                "- Buyer concentration stats\n\n"
+                "Supports Base (0x...) and Solana (base58) addresses.\n"
+                "Optional count: number of transfers to scan (default 200)",
+                parse_mode="HTML",
+            )
+            return
+
+        ca = context.args[0].strip()
+
+        # Detect chain from address format
+        is_evm = ca.startswith("0x") and len(ca) == 42
+        is_solana = not ca.startswith("0x") and 32 <= len(ca) <= 44
+        if not is_evm and not is_solana:
+            await update.message.reply_text(
+                "Invalid address. Supported:\n"
+                "- EVM (Base): 0x... (42 chars)\n"
+                "- Solana: base58 (32-44 chars)",
+                parse_mode="HTML",
+            )
+            return
+
+        chain = "solana" if is_solana else "base"
+        if is_evm:
+            ca = ca.lower()
+
+        scan_count = 200
+        if len(context.args) > 1:
+            try:
+                scan_count = min(int(context.args[1]), 500)
+            except ValueError:
+                pass
+
+        time_est = "2-3 minutes (Solana free RPC is slow)" if is_solana else "30-60 seconds"
+        await update.message.reply_text(
+            f"Scanning first {scan_count} transfers on <b>{chain.upper()}</b> "
+            f"for <code>{ca[:12]}...</code>\n"
+            f"This may take {time_est}...",
+            parse_mode="HTML",
+        )
+
+        try:
+            from sqlalchemy import select as sa_select
+            from alpha_bot.wallets.models import PrivateWallet, WalletEntity
+
+            # Step 1: Get early transfers
+            async with httpx.AsyncClient(timeout=120) as client:
+                if chain == "solana":
+                    from alpha_bot.platform_intel.solana_rpc import get_token_transfers_solana
+                    transfers = await get_token_transfers_solana(ca, client, limit=scan_count)
+                else:
+                    from alpha_bot.platform_intel.basescan import get_token_transfers
+                    transfers = await get_token_transfers(ca, client, offset=scan_count)
+
+            if not transfers:
+                await update.message.reply_text(
+                    f"No transfers found for <code>{ca[:12]}...</code>",
+                    parse_mode="HTML",
+                )
+                return
+
+            # Step 2: Count unique buyers
+            from collections import Counter
+            excluded = {
+                "0x0000000000000000000000000000000000000000",
+                "0x000000000000000000000000000000000000dead",
+                "11111111111111111111111111111111",  # Solana system program
+            }
+            buyer_counts: Counter = Counter()
+            for tx in transfers:
+                buyer = tx["to"].lower() if is_evm else tx["to"]
+                if buyer not in excluded and buyer != ca:
+                    buyer_counts[buyer] += 1
+
+            total_buyers = len(buyer_counts)
+            top_buyers = buyer_counts.most_common(20)
+
+            # Step 3: Cross-reference with private wallets + entities
+            all_addrs = [addr for addr, _ in top_buyers]
+            # Also check ALL unique buyers against private wallets (not just top 20)
+            all_buyer_addrs = list(buyer_counts.keys())
+
+            async with async_session() as session:
+                # Find known private wallets
+                pw_result = await session.execute(
+                    sa_select(PrivateWallet).where(
+                        PrivateWallet.address.in_(all_buyer_addrs)
+                    )
+                )
+                known_wallets = {w.address: w for w in pw_result.scalars().all()}
+
+                # Find known entities
+                we_result = await session.execute(
+                    sa_select(WalletEntity).where(
+                        WalletEntity.address.in_(all_buyer_addrs)
+                    )
+                )
+                known_entities = {e.address: e for e in we_result.scalars().all()}
+
+            # Step 4: Get token info from DexScreener
+            token_name = ""
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    pair = await get_token_by_address(ca, client)
+                if pair:
+                    d = extract_pair_details(pair)
+                    token_name = f"${d['symbol']}"
+            except Exception:
+                pass
+
+            # Step 5: Build response
+            header = token_name or f"<code>{ca[:12]}...</code>"
+            chain_label = chain.upper()
+            lines = [
+                f"<b>X-Ray: {header}</b> [{chain_label}]\n",
+                f"Transfers scanned: {len(transfers)}",
+                f"Unique buyers: {total_buyers}\n",
+            ]
+
+            # Known smart wallets section
+            smart_in_token = []
+            for addr, pw in known_wallets.items():
+                entity = known_entities.get(addr)
+                smart_in_token.append((addr, pw, entity))
+
+            if smart_in_token:
+                smart_in_token.sort(key=lambda x: x[1].quality_score, reverse=True)
+                lines.append(f"<b>Smart Wallets Found: {len(smart_in_token)}</b>")
+                for addr, pw, entity in smart_in_token[:15]:
+                    addr_short = f"{addr[:6]}...{addr[-4:]}"
+                    buys = buyer_counts.get(addr, 0)
+                    label = ""
+                    if entity and entity.entity_name:
+                        label = f" | {entity.entity_name} ({entity.entity_type.upper()})"
+                    elif pw.label:
+                        label = f" | {pw.label}"
+                    lines.append(
+                        f"  <code>{addr_short}</code> Q:{pw.quality_score:.0f} "
+                        f"Wins:{pw.total_wins} Buys:{buys}{label}"
+                    )
+                lines.append("")
+
+            # Known entities not in private wallets
+            entity_only = {
+                addr: e for addr, e in known_entities.items()
+                if addr not in known_wallets and e.entity_name
+            }
+            if entity_only:
+                lines.append(f"<b>Known Entities: {len(entity_only)}</b>")
+                for addr, e in list(entity_only.items())[:10]:
+                    addr_short = f"{addr[:6]}...{addr[-4:]}"
+                    lines.append(
+                        f"  <code>{addr_short}</code> {e.entity_name} "
+                        f"({e.entity_type.upper()}, {e.resolution_source})"
+                    )
+                lines.append("")
+
+            if not smart_in_token and not entity_only:
+                lines.append("No known smart wallets or entities found in early buyers.\n")
+
+            # Top holders section
+            lines.append("<b>Top Early Buyers (by tx count):</b>")
+            for addr, count in top_buyers[:10]:
+                addr_short = f"{addr[:6]}...{addr[-4:]}"
+                known_tag = ""
+                if addr in known_wallets:
+                    known_tag = " SMART"
+                elif addr in known_entities:
+                    known_tag = f" [{known_entities[addr].entity_name}]"
+                lines.append(f"  <code>{addr_short}</code> {count} txs{known_tag}")
+
+            # Summary stats
+            lines.append(f"\nConcentration: top 5 hold {sum(c for _, c in top_buyers[:5])}/{len(transfers)} txs")
+            if smart_in_token:
+                lines.append(
+                    f"Signal: {len(smart_in_token)} smart wallets are early buyers"
+                )
+
+            text = "\n".join(lines)
+            for i in range(0, len(text), 4000):
+                await update.message.reply_text(
+                    text[i : i + 4000], parse_mode="HTML"
+                )
+
+        except Exception as exc:
+            logger.exception("X-ray failed for %s", ca[:12])
+            await update.message.reply_text(
+                f"X-ray failed: {exc}", parse_mode="HTML"
             )
 
     @staticmethod

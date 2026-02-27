@@ -77,6 +77,17 @@
         </div>
     </details>
 
+    {% if s.entities %}
+    <div class="scan-entities">
+        <span class="scan-label">Notable Holders</span>
+        <div class="scan-entity-chips">
+            {% for e in s.entities %}
+            <span class="entity-chip entity-{{ e.entity_type }}">{{ e.entity_name }}{% if e.pct_supply %} ({{ e.pct_supply }}%){% endif %}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="scan-ca"><code>{{ s.ca }}</code></div>
 </div>
 {% endif %}
@@ -121,7 +132,93 @@
     {% endif %}
 </section>
 
-{# ── Live Signal Feed (full width) ── #}
+{# ── Entity Intel ── #}
+{% if active_entities %}
+<section class="panel-section entity-section">
+    <h3>Entity Intel</h3>
+    <div class="entity-grid">
+        {% for e in active_entities %}
+        <div class="entity-card entity-border-{{ e.entity_type }}">
+            <div class="entity-card-header">
+                <span class="entity-badge entity-{{ e.entity_type }}">{{ e.entity_type|upper }}</span>
+                <span class="entity-name">{{ e.entity_name }}</span>
+            </div>
+            {% if e.organization %}
+            <div class="entity-org">{{ e.organization }}</div>
+            {% endif %}
+            <div class="entity-meta">
+                Q: {{ e.quality_score|int }}
+                &middot; ${{ e.last_buy_ticker }}
+                &middot; {{ e.last_buy_at | timeago }}
+            </div>
+            {% if e.ens_name %}
+            <div class="entity-ens">{{ e.ens_name }}</div>
+            {% endif %}
+            <div class="entity-addr">
+                <code>{{ e.address[:8] }}...{{ e.address[-4:] }}</code>
+                <button class="copy-ca-sm" onclick="copyCA('{{ e.address }}')" title="Copy address">&#x2398;</button>
+                <a class="dex-link-sm" href="https://basescan.org/address/{{ e.address }}" target="_blank" rel="noopener" title="BaseScan">&#x2197;</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{# ── Smart Wallets ── #}
+{% if smart_wallets %}
+<section class="panel-section wallet-section">
+    <h3>Smart Wallets <span class="wallet-count">({{ smart_wallets|length }})</span></h3>
+    <div class="wallet-table-wrap">
+        <table class="wallet-table">
+            <thead>
+                <tr>
+                    <th>Address</th>
+                    <th>Entity / Label</th>
+                    <th>Q</th>
+                    <th>Wins</th>
+                    <th>Type</th>
+                    <th>Links</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for w in smart_wallets %}
+                <tr class="wallet-row">
+                    <td class="wallet-addr">
+                        <code>{{ w.address[:6] }}...{{ w.address[-4:] }}</code>
+                        <button class="copy-ca-sm" onclick="copyCA('{{ w.address }}')" title="Copy">&#x2398;</button>
+                    </td>
+                    <td class="wallet-label-cell">
+                        {% if w.entity_name %}
+                            <span class="entity-badge entity-{{ w.entity_type }}">{{ w.entity_type|upper }}</span>
+                            <span class="wallet-entity-name">{{ w.entity_name }}</span>
+                        {% elif w.label %}
+                            <span class="wallet-label-text">{{ w.label[:40] }}</span>
+                        {% else %}
+                            <span class="wallet-label-text muted">—</span>
+                        {% endif %}
+                        {% if w.ens_name %}
+                        <span class="wallet-ens">{{ w.ens_name }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="wallet-q {% if w.quality_score >= 80 %}q-high{% elif w.quality_score >= 50 %}q-mid{% else %}q-low{% endif %}">
+                        {{ w.quality_score|int }}
+                    </td>
+                    <td class="wallet-wins">{{ w.total_wins }}</td>
+                    <td class="wallet-source">{{ w.source }}</td>
+                    <td class="wallet-links">
+                        <a href="https://basescan.org/address/{{ w.address }}" target="_blank" rel="noopener" title="BaseScan">&#x2197;</a>
+                        <a href="https://debank.com/profile/{{ w.address }}" target="_blank" rel="noopener" title="DeBank">&#x1F4B0;</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+{# ── Live Signal Feed (full width, auto-refreshes via HTMX) ── #}
 <section class="panel-section feed-section">
     <div class="feed-head">
         <h3>Live Feed</h3>
@@ -141,47 +238,13 @@
             </div>
         </div>
     </div>
-    {% if feed %}
-    <div class="feed-table" id="feed-table">
-        <div class="feed-header-row">
-            <span>Source</span>
-            <span>Token</span>
-            <span>Score</span>
-            <span>MCap</span>
-            <span>Change</span>
-            <span>Signal</span>
-            <span>When</span>
-        </div>
-        {% for item in feed %}
-        <div class="feed-row-rich {% if item.rec == 'BUY' %}feed-rec-buy{% endif %}" data-source="{{ item.source_type }}" data-signal="{{ item.rec or '' }}">
-            <span class="feed-badge feed-badge-{{ item.source_type|lower }}">{{ item.source_type }}</span>
-            <span class="feed-token">
-                <span class="feed-ticker">${{ item.ticker or '?' }}</span>
-                {% if item.platform %}<span class="feed-plat">{{ item.platform }}</span>{% endif %}
-                <button class="copy-ca-sm" onclick="copyCA('{{ item.ca }}')" title="Copy CA">&#x2398;</button>
-                <a class="dex-link-sm" href="https://dexscreener.com/{{ item.chain or 'base' }}/{{ item.ca }}" target="_blank" rel="noopener" title="DexScreener">&#x2197;</a>
-                <button class="scan-btn-sm" onclick="scanCA('{{ item.ca }}')" title="Scan">&#x2316;</button>
-            </span>
-            <span class="feed-score-cell">
-                {% if item.score is not none %}
-                <span class="feed-score-val {% if item.score >= 80 %}fs-high{% elif item.score >= 60 %}fs-mid{% else %}fs-low{% endif %}">{{ item.score|int }}</span>
-                {% else %}
-                <span class="feed-score-val fs-na">&mdash;</span>
-                {% endif %}
-            </span>
-            <span class="feed-mcap mono">{{ item.mcap_str or '&mdash;' }}</span>
-            <span class="feed-change mono {% if item.change and item.change > 0 %}pnl-up{% elif item.change and item.change < 0 %}pnl-down{% endif %}">
-                {% if item.change is not none %}{{ '%+.0f' | format(item.change) }}%{% else %}&mdash;{% endif %}
-            </span>
-            <span class="feed-signal">{{ item.signal_str or '' }}</span>
-            <span class="feed-time">{{ item.timestamp | timeago }}</span>
-        </div>
-        {% endfor %}
+    <div id="feed-container"
+         hx-get="/partials/feed"
+         hx-trigger="every 15s"
+         hx-swap="innerHTML"
+    >
+        {% include "_feed_partial.html" %}
     </div>
-    <div class="empty-small" id="feed-empty" style="display:none">No signals match filters</div>
-    {% else %}
-    <div class="empty-small">No recent signals</div>
-    {% endif %}
 </section>
 
 <script>
@@ -203,43 +266,47 @@ function scanCA(ca) {
     form.submit();
 }
 
-// ── Feed filters ──
-(function() {
-    var activeSource = 'all';
-    var activeSignal = 'all';
+// ── Feed filters (global so they persist across HTMX swaps) ──
+var _activeSource = 'all';
+var _activeSignal = 'all';
 
-    function applyFilters() {
-        var rows = document.querySelectorAll('.feed-row-rich');
-        var visible = 0;
-        rows.forEach(function(row) {
-            var src = row.getAttribute('data-source');
-            var sig = row.getAttribute('data-signal');
-            var showSrc = activeSource === 'all' || src === activeSource;
-            var showSig = activeSignal === 'all' || sig === activeSignal;
-            if (showSrc && showSig) {
-                row.style.display = '';
-                visible++;
-            } else {
-                row.style.display = 'none';
-            }
-        });
-        var empty = document.getElementById('feed-empty');
-        if (empty) empty.style.display = visible === 0 ? '' : 'none';
-    }
+function applyFeedFilters() {
+    var rows = document.querySelectorAll('.feed-row-rich');
+    var visible = 0;
+    rows.forEach(function(row) {
+        var src = row.getAttribute('data-source');
+        var sig = row.getAttribute('data-signal');
+        var showSrc = _activeSource === 'all' || src === _activeSource;
+        var showSig = _activeSignal === 'all' || sig === _activeSignal;
+        if (showSrc && showSig) {
+            row.style.display = '';
+            visible++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    var empty = document.getElementById('feed-empty');
+    if (empty) empty.style.display = visible === 0 ? '' : 'none';
+}
 
-    document.querySelectorAll('.filter-group').forEach(function(group) {
-        var filterType = group.getAttribute('data-filter');
-        group.querySelectorAll('.filter-chip').forEach(function(chip) {
-            chip.addEventListener('click', function() {
-                group.querySelectorAll('.filter-chip').forEach(function(c) { c.classList.remove('active'); });
-                chip.classList.add('active');
-                if (filterType === 'source') activeSource = chip.getAttribute('data-value');
-                else activeSignal = chip.getAttribute('data-value');
-                applyFilters();
-            });
+// Re-apply filters after every HTMX swap
+document.getElementById('feed-container').addEventListener('htmx:afterSwap', function() {
+    applyFeedFilters();
+});
+
+// Wire filter chip clicks
+document.querySelectorAll('.filter-group').forEach(function(group) {
+    var filterType = group.getAttribute('data-filter');
+    group.querySelectorAll('.filter-chip').forEach(function(chip) {
+        chip.addEventListener('click', function() {
+            group.querySelectorAll('.filter-chip').forEach(function(c) { c.classList.remove('active'); });
+            chip.classList.add('active');
+            if (filterType === 'source') _activeSource = chip.getAttribute('data-value');
+            else _activeSignal = chip.getAttribute('data-value');
+            applyFeedFilters();
         });
     });
-})();
+});
 </script>
 
 {% endblock %}

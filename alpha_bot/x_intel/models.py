@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Index, Integer, String, Text, DateTime
+from sqlalchemy import Boolean, Index, Integer, String, Text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from alpha_bot.storage.models import Base
@@ -24,6 +24,7 @@ class XSignal(Base):
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False
     )
+    processed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         Index("ix_xsignal_tweet_id", "tweet_id", unique=True),

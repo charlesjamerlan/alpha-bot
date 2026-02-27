@@ -348,4 +348,17 @@ async def main() -> None:
     else:
         logger.info("Wallet curation disabled — set WALLET_CURATION_ENABLED=true")
 
+    # X/Twitter Signal Processor — feeds X signals into conviction engine
+    if settings.conviction_enabled:
+        from alpha_bot.x_intel.signal_processor import (
+            x_signal_processor_loop,
+            set_notify_fn as set_x_proc_notify,
+        )
+
+        if delivery:
+            set_x_proc_notify(delivery.send_text)
+
+        tasks.append(x_signal_processor_loop())
+        logger.info("X signal processor ENABLED (feeds into conviction engine)")
+
     await asyncio.gather(*tasks)

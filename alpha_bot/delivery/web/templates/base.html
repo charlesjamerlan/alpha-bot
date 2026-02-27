@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Trench Edge{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -861,6 +862,256 @@
             font-size: 11px;
             color: var(--text-muted);
             text-align: right;
+        }
+
+        /* ---- Entity Intel ---- */
+        .entity-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 10px;
+        }
+
+        .entity-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            transition: background 0.2s, border-color 0.2s, transform 0.15s;
+        }
+
+        .entity-card:hover {
+            background: var(--bg-card-hover);
+            transform: translateY(-1px);
+        }
+
+        .entity-border-vc { border-left: 3px solid var(--blue); }
+        .entity-border-kol { border-left: 3px solid var(--purple); }
+        .entity-border-fund { border-left: 3px solid var(--green); }
+        .entity-border-whale { border-left: 3px solid #f97316; }
+        .entity-border-institution { border-left: 3px solid var(--yellow); }
+        .entity-border-deployer { border-left: 3px solid var(--red); }
+        .entity-border-team { border-left: 3px solid var(--yellow); }
+        .entity-border-unknown { border-left: 3px solid var(--text-muted); }
+
+        .entity-card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .entity-badge {
+            font-family: var(--font-mono);
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid;
+        }
+
+        .entity-vc { color: var(--blue); border-color: rgba(96, 165, 250, 0.3); background: rgba(96, 165, 250, 0.08); }
+        .entity-kol { color: var(--purple); border-color: rgba(167, 139, 250, 0.3); background: rgba(167, 139, 250, 0.08); }
+        .entity-fund { color: var(--green); border-color: rgba(52, 211, 153, 0.3); background: var(--accent-dim); }
+        .entity-whale { color: #f97316; border-color: rgba(249, 115, 22, 0.3); background: rgba(249, 115, 22, 0.08); }
+        .entity-institution { color: var(--yellow); border-color: rgba(251, 191, 36, 0.3); background: rgba(251, 191, 36, 0.08); }
+        .entity-deployer { color: var(--red); border-color: rgba(248, 113, 113, 0.3); background: rgba(248, 113, 113, 0.08); }
+        .entity-team { color: var(--yellow); border-color: rgba(251, 191, 36, 0.3); background: rgba(251, 191, 36, 0.08); }
+        .entity-unknown { color: var(--text-muted); border-color: rgba(82, 82, 91, 0.3); background: rgba(82, 82, 91, 0.08); }
+
+        .entity-name {
+            font-family: var(--font-body);
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .entity-org {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .entity-meta {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .entity-ens {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-accent);
+            margin-bottom: 4px;
+        }
+
+        .entity-addr {
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* ---- Entity chips (scan result) ---- */
+        .scan-entities {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 8px;
+        }
+
+        .scan-entities .scan-label {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .scan-entity-chips {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .entity-chip {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 6px;
+            border: 1px solid;
+        }
+
+        /* ---- Smart Wallets Table ---- */
+        .wallet-section h3 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .wallet-count {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .wallet-table-wrap {
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .wallet-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: var(--font-mono);
+            font-size: 12px;
+        }
+
+        .wallet-table thead {
+            background: var(--bg-section);
+            position: sticky;
+            top: 0;
+        }
+
+        .wallet-table th {
+            padding: 8px 12px;
+            text-align: left;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        .wallet-table td {
+            padding: 7px 12px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        .wallet-row:hover {
+            background: var(--bg-card-hover);
+        }
+
+        .wallet-addr {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+
+        .wallet-label-cell {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .wallet-entity-name {
+            font-family: var(--font-body);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .wallet-label-text {
+            font-family: var(--font-body);
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .wallet-label-text.muted {
+            color: var(--text-muted);
+        }
+
+        .wallet-ens {
+            font-size: 10px;
+            color: var(--text-accent);
+        }
+
+        .wallet-q {
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .q-high { color: var(--green); }
+        .q-mid { color: var(--yellow); }
+        .q-low { color: var(--text-muted); }
+
+        .wallet-wins {
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        .wallet-source {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        .wallet-links {
+            display: flex;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .wallet-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .wallet-links a:hover {
+            color: var(--text-accent);
         }
 
         /* ---- Responsive ---- */

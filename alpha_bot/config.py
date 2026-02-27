@@ -128,6 +128,10 @@ class Settings(BaseSettings):
     # X/Twitter signal ingestion
     x_ingest_api_key: str = ""
 
+    # Entity Resolution
+    entity_resolution_enabled: bool = False
+    entity_ens_subgraph_url: str = "https://api.thegraph.com/subgraphs/name/ensdomains/ens"
+
     # Smart Wallet Buy Monitor
     wallet_buy_monitor_enabled: bool = False
     wallet_buy_monitor_interval_seconds: int = 60

@@ -65,11 +65,194 @@ router = APIRouter()
 # Command Center — single-page dashboard
 # ═══════════════════════════════════════════════════════════════════════════
 
+async def _build_feed(db: AsyncSession) -> list[dict]:
+    """Query all signal sources and merge into a unified, sorted feed."""
+    feed: list[dict] = []
+
+    # ── TG calls ──
+    try:
+        from alpha_bot.tg_intel.models import CallOutcome
+
+        result = await db.execute(
+            sa_select(CallOutcome)
+            .order_by(CallOutcome.mention_timestamp.desc())
+            .limit(20)
+        )
+        for c in result.scalars().all():
+            sig = c.channel_name[:20] if c.channel_name else ""
+            if c.roi_peak is not None and c.roi_peak > 0:
+                sig += f" (peak {c.roi_peak:.0f}%)"
+            change = c.roi_1h if c.roi_1h is not None else c.roi_24h
+            rec = "BUY" if c.mcap_at_mention and c.mcap_at_mention < 1_000_000 else None
+            feed.append({
+                "source_type": "TG",
+                "ticker": c.ticker or "",
+                "ca": c.ca,
+                "chain": c.chain or "base",
+                "platform": c.platform if c.platform != "unknown" else "",
+                "score": None,
+                "mcap_str": _fmt_mcap(c.mcap_at_mention),
+                "change": change,
+                "signal_str": sig,
+                "rec": rec,
+                "timestamp": c.mention_timestamp,
+            })
+    except Exception as exc:
+        logger.warning("Failed to load TG calls: %s", exc)
+
+    # ── Scanner Tier 1-2 ──
+    try:
+        from alpha_bot.scanner.models import ScannerCandidate
+
+        result = await db.execute(
+            sa_select(ScannerCandidate)
+            .where(ScannerCandidate.tier <= 2)
+            .order_by(ScannerCandidate.discovered_at.desc())
+            .limit(20)
+        )
+        for s in result.scalars().all():
+            tier_label = f"Tier {s.tier}"
+            themes = ""
+            try:
+                themes_list = json.loads(s.matched_themes) if s.matched_themes else []
+                if themes_list:
+                    themes = " | " + ", ".join(themes_list[:2])
+            except (json.JSONDecodeError, TypeError):
+                pass
+            rec = "BUY" if s.tier == 1 and s.composite_score >= 75 else None
+            feed.append({
+                "source_type": "SCAN",
+                "ticker": s.ticker or "",
+                "ca": s.ca,
+                "chain": s.chain or "base",
+                "platform": s.platform if s.platform != "unknown" else "",
+                "score": s.composite_score,
+                "mcap_str": _fmt_mcap(s.mcap),
+                "change": None,
+                "signal_str": f"{tier_label}{themes}",
+                "rec": rec,
+                "timestamp": s.discovered_at,
+            })
+    except Exception as exc:
+        logger.warning("Failed to load scanner hits: %s", exc)
+
+    # ── Wallet buys ──
+    try:
+        from alpha_bot.wallets.models import WalletTransaction, PrivateWallet, WalletEntity
+
+        result = await db.execute(
+            sa_select(WalletTransaction, PrivateWallet)
+            .join(PrivateWallet, WalletTransaction.wallet_address == PrivateWallet.address)
+            .order_by(WalletTransaction.timestamp.desc())
+            .limit(10)
+        )
+        # Pre-load entity map for these wallets
+        wallet_rows = result.all()
+        wallet_addrs = list({row[0].wallet_address for row in wallet_rows})
+        entity_map: dict[str, WalletEntity] = {}
+        if wallet_addrs:
+            ent_result = await db.execute(
+                sa_select(WalletEntity).where(WalletEntity.address.in_(wallet_addrs))
+            )
+            for ent in ent_result.scalars().all():
+                entity_map[ent.address] = ent
+
+        for row in wallet_rows:
+            tx = row[0]
+            wallet = row[1]
+            entity = entity_map.get(tx.wallet_address)
+            if entity and entity.entity_name:
+                label = entity.entity_name[:20]
+            elif wallet.label:
+                label = wallet.label[:16]
+            else:
+                label = tx.wallet_address[:8] + "..."
+            change = tx.peak_roi if tx.peak_roi else None
+            feed.append({
+                "source_type": "WALLET",
+                "ticker": tx.token_symbol or "",
+                "ca": tx.ca,
+                "chain": tx.chain or "base",
+                "platform": "",
+                "score": wallet.quality_score if wallet else None,
+                "mcap_str": "",
+                "change": change,
+                "signal_str": f"{label} (Q:{wallet.quality_score:.0f})" if wallet else label,
+                "rec": "BUY" if wallet and wallet.quality_score >= 80 else None,
+                "timestamp": tx.timestamp,
+            })
+    except Exception as exc:
+        logger.warning("Failed to load wallet buys: %s", exc)
+
+    # ── Convergences (DB-backed) ──
+    try:
+        from alpha_bot.tg_intel.convergence import get_recent_convergences_db
+        for cv in await get_recent_convergences_db(db):
+            conf = cv.get("confidence", 0)
+            channels = cv.get("channels", 0)
+            feed.append({
+                "source_type": "CONV",
+                "ticker": cv.get("ticker", ""),
+                "ca": cv.get("ca", ""),
+                "chain": cv.get("chain", "base"),
+                "platform": "",
+                "score": conf * 100 if conf else None,
+                "mcap_str": "",
+                "change": None,
+                "signal_str": f"{channels} channels, conf {conf:.2f}",
+                "rec": "BUY" if conf >= 0.7 and channels >= 3 else None,
+                "timestamp": cv.get("alerted_at"),
+            })
+    except Exception as exc:
+        logger.warning("Failed to load convergences: %s", exc)
+
+    # ── X/Twitter signals ──
+    try:
+        from alpha_bot.x_intel.models import XSignal
+
+        result = await db.execute(
+            sa_select(XSignal)
+            .order_by(XSignal.tweeted_at.desc())
+            .limit(20)
+        )
+        for xs in result.scalars().all():
+            cashtags_list = []
+            try:
+                cashtags_list = json.loads(xs.cashtags) if xs.cashtags else []
+            except (json.JSONDecodeError, TypeError):
+                pass
+            ticker = cashtags_list[0].lstrip("$") if cashtags_list else ""
+            cas_list = []
+            try:
+                cas_list = json.loads(xs.contract_addresses) if xs.contract_addresses else []
+            except (json.JSONDecodeError, TypeError):
+                pass
+            ca = cas_list[0] if cas_list else ""
+            feed.append({
+                "source_type": "X",
+                "ticker": ticker,
+                "ca": ca,
+                "chain": "base",
+                "platform": "",
+                "score": None,
+                "mcap_str": "",
+                "change": None,
+                "signal_str": f"@{xs.author_username} \u2022 {xs.signal_type}",
+                "rec": None,
+                "timestamp": xs.tweeted_at,
+            })
+    except Exception as exc:
+        logger.warning("Failed to load X signals: %s", exc)
+
+    feed.sort(key=lambda x: x.get("timestamp") or datetime.min, reverse=True)
+    return feed[:30]
+
+
 @router.get("/", response_class=HTMLResponse)
 async def command_center(request: Request, db: AsyncSession = Depends(get_db)):
     now = datetime.utcnow()
 
-    # ── 1. Conviction Alerts (last 24h) ──
+    # ── Conviction Alerts (last 24h) ──
     conviction_alerts: list = []
     try:
         from alpha_bot.conviction.models import ConvictionAlert
@@ -89,210 +272,96 @@ async def command_center(request: Request, db: AsyncSession = Depends(get_db)):
     except Exception as exc:
         logger.warning("Failed to load conviction alerts: %s", exc)
 
-    # ── 2. Live Feed: TG calls ──
-    tg_calls: list = []
+    # ── Active Entities (wallets active in last 24h) ──
+    active_entities: list[dict] = []
     try:
-        from alpha_bot.tg_intel.models import CallOutcome
+        from alpha_bot.wallets.models import WalletEntity, WalletTransaction, PrivateWallet
 
-        result = await db.execute(
-            sa_select(CallOutcome)
-            .order_by(CallOutcome.mention_timestamp.desc())
-            .limit(20)
-        )
-        tg_calls = list(result.scalars().all())
-    except Exception as exc:
-        logger.warning("Failed to load TG calls: %s", exc)
-
-    # ── 3. Live Feed: Scanner Tier 1-2 ──
-    scanner_hits: list = []
-    try:
-        from alpha_bot.scanner.models import ScannerCandidate
-
-        result = await db.execute(
-            sa_select(ScannerCandidate)
-            .where(ScannerCandidate.tier <= 2)
-            .order_by(ScannerCandidate.discovered_at.desc())
-            .limit(20)
-        )
-        scanner_hits = list(result.scalars().all())
-    except Exception as exc:
-        logger.warning("Failed to load scanner hits: %s", exc)
-
-    # ── 4. Live Feed: Wallet buys ──
-    wallet_buys: list = []
-    try:
-        from alpha_bot.wallets.models import WalletTransaction, PrivateWallet
-
-        result = await db.execute(
-            sa_select(WalletTransaction, PrivateWallet)
-            .join(PrivateWallet, WalletTransaction.wallet_address == PrivateWallet.address)
+        ent_result = await db.execute(
+            sa_select(
+                WalletEntity,
+                WalletTransaction.token_symbol,
+                WalletTransaction.timestamp,
+                PrivateWallet.quality_score,
+            )
+            .join(WalletTransaction, WalletEntity.address == WalletTransaction.wallet_address)
+            .outerjoin(PrivateWallet, WalletEntity.address == PrivateWallet.address)
+            .where(WalletTransaction.timestamp >= now - timedelta(hours=24))
             .order_by(WalletTransaction.timestamp.desc())
-            .limit(10)
         )
-        wallet_buys = list(result.all())  # list of Row(WalletTransaction, PrivateWallet)
+        seen_addrs: set[str] = set()
+        for row in ent_result.all():
+            ent = row[0]
+            if ent.address in seen_addrs:
+                continue
+            seen_addrs.add(ent.address)
+            active_entities.append({
+                "address": ent.address,
+                "entity_type": ent.entity_type,
+                "entity_name": ent.entity_name or ent.address[:10] + "...",
+                "organization": ent.organization,
+                "ens_name": ent.ens_name,
+                "quality_score": row[3] or 0,
+                "last_buy_ticker": row[1] or "?",
+                "last_buy_at": row[2],
+            })
+            if len(active_entities) >= 12:
+                break
     except Exception as exc:
-        logger.warning("Failed to load wallet buys: %s", exc)
+        logger.warning("Failed to load active entities: %s", exc)
 
-    # ── 5. Live Feed: Convergences (DB-backed) ──
-    convergences: list = []
+    # ── Smart Wallets (all tracked wallets) ──
+    smart_wallets: list[dict] = []
     try:
-        from alpha_bot.tg_intel.convergence import get_recent_convergences_db
-        convergences = await get_recent_convergences_db(db)
-    except Exception as exc:
-        logger.warning("Failed to load convergences: %s", exc)
+        from alpha_bot.wallets.models import PrivateWallet as PW, WalletEntity as WE
 
-    # ── 6. Live Feed: X/Twitter signals ──
-    x_signals: list = []
-    try:
-        from alpha_bot.x_intel.models import XSignal
-
-        result = await db.execute(
-            sa_select(XSignal)
-            .order_by(XSignal.tweeted_at.desc())
-            .limit(20)
+        pw_result = await db.execute(
+            sa_select(PW, WE)
+            .outerjoin(WE, PW.address == WE.address)
+            .order_by(PW.quality_score.desc())
+            .limit(100)
         )
-        x_signals = list(result.scalars().all())
+        for row in pw_result.all():
+            pw = row[0]
+            ent = row[1]
+            smart_wallets.append({
+                "address": pw.address,
+                "label": pw.label or "",
+                "quality_score": pw.quality_score,
+                "total_wins": pw.total_wins,
+                "total_tracked": pw.total_tracked,
+                "source": pw.source or "",
+                "status": pw.status or "active",
+                "entity_name": ent.entity_name if ent else "",
+                "entity_type": ent.entity_type if ent else "",
+                "ens_name": ent.ens_name if ent else "",
+            })
     except Exception as exc:
-        logger.warning("Failed to load X signals: %s", exc)
+        logger.warning("Failed to load smart wallets: %s", exc)
 
-    # ── Merge into unified feed ──
-    feed: list[dict] = []
 
-    for c in tg_calls:
-        # Signal description: channel name + quality context
-        sig = c.channel_name[:20] if c.channel_name else ""
-        if c.roi_peak is not None and c.roi_peak > 0:
-            sig += f" (peak {c.roi_peak:.0f}%)"
-
-        # Price change: use roi_1h if available, else roi_24h
-        change = c.roi_1h if c.roi_1h is not None else c.roi_24h
-
-        # Recommendation: if from a channel call with good ROI history
-        rec = "BUY" if c.mcap_at_mention and c.mcap_at_mention < 1_000_000 else None
-
-        feed.append({
-            "source_type": "TG",
-            "ticker": c.ticker or "",
-            "ca": c.ca,
-            "chain": c.chain or "base",
-            "platform": c.platform if c.platform != "unknown" else "",
-            "score": None,
-            "mcap_str": _fmt_mcap(c.mcap_at_mention),
-            "change": change,
-            "signal_str": sig,
-            "rec": rec,
-            "timestamp": c.mention_timestamp,
-        })
-
-    for s in scanner_hits:
-        # Scanner has full composite score + tier
-        tier_label = f"Tier {s.tier}"
-        themes = ""
-        try:
-            themes_list = json.loads(s.matched_themes) if s.matched_themes else []
-            if themes_list:
-                themes = " | " + ", ".join(themes_list[:2])
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-        rec = "BUY" if s.tier == 1 and s.composite_score >= 75 else None
-
-        feed.append({
-            "source_type": "SCAN",
-            "ticker": s.ticker or "",
-            "ca": s.ca,
-            "chain": s.chain or "base",
-            "platform": s.platform if s.platform != "unknown" else "",
-            "score": s.composite_score,
-            "mcap_str": _fmt_mcap(s.mcap),
-            "change": None,
-            "signal_str": f"{tier_label}{themes}",
-            "rec": rec,
-            "timestamp": s.discovered_at,
-        })
-
-    for row in wallet_buys:
-        tx = row[0]  # WalletTransaction
-        wallet = row[1]  # PrivateWallet
-        label = wallet.label[:16] if wallet.label else tx.wallet_address[:8] + "..."
-        change = tx.peak_roi if tx.peak_roi else None
-
-        feed.append({
-            "source_type": "WALLET",
-            "ticker": tx.token_symbol or "",
-            "ca": tx.ca,
-            "chain": tx.chain or "base",
-            "platform": "",
-            "score": wallet.quality_score if wallet else None,
-            "mcap_str": "",
-            "change": change,
-            "signal_str": f"{label} (Q:{wallet.quality_score:.0f})" if wallet else label,
-            "rec": "BUY" if wallet and wallet.quality_score >= 80 else None,
-            "timestamp": tx.timestamp,
-        })
-
-    for cv in convergences:
-        conf = cv.get("confidence", 0)
-        channels = cv.get("channels", 0)
-
-        feed.append({
-            "source_type": "CONV",
-            "ticker": cv.get("ticker", ""),
-            "ca": cv.get("ca", ""),
-            "chain": cv.get("chain", "base"),
-            "platform": "",
-            "score": conf * 100 if conf else None,
-            "mcap_str": "",
-            "change": None,
-            "signal_str": f"{channels} channels, conf {conf:.2f}",
-            "rec": "BUY" if conf >= 0.7 and channels >= 3 else None,
-            "timestamp": cv.get("alerted_at"),
-        })
-
-    for xs in x_signals:
-        # First cashtag stripped of $
-        cashtags_list = []
-        try:
-            cashtags_list = json.loads(xs.cashtags) if xs.cashtags else []
-        except (json.JSONDecodeError, TypeError):
-            pass
-        ticker = cashtags_list[0].lstrip("$") if cashtags_list else ""
-
-        # First contract address
-        cas_list = []
-        try:
-            cas_list = json.loads(xs.contract_addresses) if xs.contract_addresses else []
-        except (json.JSONDecodeError, TypeError):
-            pass
-        ca = cas_list[0] if cas_list else ""
-
-        feed.append({
-            "source_type": "X",
-            "ticker": ticker,
-            "ca": ca,
-            "chain": "base",
-            "platform": "",
-            "score": None,
-            "mcap_str": "",
-            "change": None,
-            "signal_str": f"@{xs.author_username} \u2022 {xs.signal_type}",
-            "rec": None,
-            "timestamp": xs.tweeted_at,
-        })
-
-    # Sort by time, most recent first, take 30
-    feed.sort(key=lambda x: x.get("timestamp") or datetime.min, reverse=True)
-    feed = feed[:30]
+    feed = await _build_feed(db)
 
     return templates.TemplateResponse(
         "command_center.html",
         {
             "request": request,
             "conviction_alerts": conviction_alerts,
+            "active_entities": active_entities,
+            "smart_wallets": smart_wallets,
             "feed": feed,
             "scan_result": None,
             "scan_error": None,
         },
+    )
+
+
+@router.get("/partials/feed", response_class=HTMLResponse)
+async def feed_partial(request: Request, db: AsyncSession = Depends(get_db)):
+    """HTMX partial — returns just the feed table rows."""
+    feed = await _build_feed(db)
+    return templates.TemplateResponse(
+        "_feed_partial.html", {"request": request, "feed": feed},
     )
 
 
@@ -441,6 +510,14 @@ async def quick_scan(request: Request, db: AsyncSession = Depends(get_db)):
             buys_1h = d.get("txns_1h_buys")
             sells_1h = d.get("txns_1h_sells")
 
+            # Entity analysis for notable holders
+            scan_entities: list[dict] = []
+            try:
+                from alpha_bot.wallets.entity_resolver import analyze_token_holders
+                scan_entities = await analyze_token_holders(ca, chain=token["chain"])
+            except Exception:
+                pass
+
             scan_result = {
                 "ca": ca,
                 "chain": token["chain"],
@@ -476,6 +553,8 @@ async def quick_scan(request: Request, db: AsyncSession = Depends(get_db)):
                 "age_str": age_str,
                 # DEX info
                 "dex": d.get("dex", ""),
+                # Entities
+                "entities": [e for e in scan_entities if e.get("entity_name")],
             }
 
     except Exception as exc:
@@ -556,11 +635,79 @@ async def quick_scan(request: Request, db: AsyncSession = Depends(get_db)):
     feed.sort(key=lambda x: x.get("timestamp") or datetime.min, reverse=True)
     feed = feed[:30]
 
+    # Active entities for scan response
+    active_entities: list[dict] = []
+    try:
+        from alpha_bot.wallets.models import WalletEntity, WalletTransaction, PrivateWallet
+        ent_result = await db.execute(
+            sa_select(
+                WalletEntity,
+                WalletTransaction.token_symbol,
+                WalletTransaction.timestamp,
+                PrivateWallet.quality_score,
+            )
+            .join(WalletTransaction, WalletEntity.address == WalletTransaction.wallet_address)
+            .outerjoin(PrivateWallet, WalletEntity.address == PrivateWallet.address)
+            .where(WalletTransaction.timestamp >= now - timedelta(hours=24))
+            .order_by(WalletTransaction.timestamp.desc())
+        )
+        seen_addrs: set[str] = set()
+        for row in ent_result.all():
+            ent = row[0]
+            if ent.address in seen_addrs:
+                continue
+            seen_addrs.add(ent.address)
+            active_entities.append({
+                "address": ent.address,
+                "entity_type": ent.entity_type,
+                "entity_name": ent.entity_name or ent.address[:10] + "...",
+                "organization": ent.organization,
+                "ens_name": ent.ens_name,
+                "quality_score": row[3] or 0,
+                "last_buy_ticker": row[1] or "?",
+                "last_buy_at": row[2],
+            })
+            if len(active_entities) >= 12:
+                break
+    except Exception:
+        pass
+
+    # ── Smart Wallets (all tracked wallets) ──
+    smart_wallets: list[dict] = []
+    try:
+        from alpha_bot.wallets.models import PrivateWallet as PW2, WalletEntity as WE2
+
+        pw_result = await db.execute(
+            sa_select(PW2, WE2)
+            .outerjoin(WE2, PW2.address == WE2.address)
+            .order_by(PW2.quality_score.desc())
+            .limit(100)
+        )
+        for row in pw_result.all():
+            pw = row[0]
+            ent = row[1]
+            smart_wallets.append({
+                "address": pw.address,
+                "label": pw.label or "",
+                "quality_score": pw.quality_score,
+                "total_wins": pw.total_wins,
+                "total_tracked": pw.total_tracked,
+                "source": pw.source or "",
+                "status": pw.status or "active",
+                "entity_name": ent.entity_name if ent else "",
+                "entity_type": ent.entity_type if ent else "",
+                "ens_name": ent.ens_name if ent else "",
+            })
+    except Exception:
+        pass
+
     return templates.TemplateResponse(
         "command_center.html",
         {
             "request": request,
             "conviction_alerts": conviction_alerts,
+            "active_entities": active_entities,
+            "smart_wallets": smart_wallets,
             "feed": feed,
             "scan_result": scan_result,
             "scan_error": scan_error,
@@ -901,6 +1048,33 @@ async def api_clusters(db: AsyncSession = Depends(get_db)):
             "last_updated": c.last_updated.isoformat() if c.last_updated else None,
         }
         for c in clusters
+    ]
+
+
+@router.get("/api/entities")
+async def api_entities(db: AsyncSession = Depends(get_db), limit: int = 50):
+    from alpha_bot.wallets.models import WalletEntity
+
+    result = await db.execute(
+        sa_select(WalletEntity)
+        .order_by(WalletEntity.last_updated.desc())
+        .limit(limit)
+    )
+    entities = list(result.scalars().all())
+    return [
+        {
+            "address": e.address,
+            "entity_type": e.entity_type,
+            "entity_name": e.entity_name,
+            "organization": e.organization,
+            "resolution_source": e.resolution_source,
+            "confidence": e.confidence,
+            "ens_name": e.ens_name,
+            "notes": e.notes,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+            "last_updated": e.last_updated.isoformat() if e.last_updated else None,
+        }
+        for e in entities
     ]
 
 

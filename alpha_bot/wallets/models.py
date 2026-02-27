@@ -60,6 +60,33 @@ class WalletTransaction(Base):
     )
 
 
+class WalletEntity(Base):
+    """Resolved identity behind a wallet address."""
+
+    __tablename__ = "wallet_entities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    address: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(32), default="unknown")  # vc|kol|fund|institution|whale|team|deployer|unknown
+    entity_name: Mapped[str] = mapped_column(String(256), default="")
+    organization: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    resolution_source: Mapped[str] = mapped_column(String(32), default="unknown")  # seed|ens|deployer_trace|funding_trace|manual
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    ens_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_wallet_entity_address", "address", unique=True),
+        Index("ix_wallet_entity_type", "entity_type"),
+    )
+
+
 class WalletCluster(Base):
     """A group of wallets that frequently co-buy the same tokens."""
 

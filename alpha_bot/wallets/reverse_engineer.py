@@ -182,6 +182,24 @@ async def _scan_winners() -> None:
 
     if new_wallets > 0:
         logger.info("Discovered %d new private wallets", new_wallets)
+
+        # Resolve entities for newly discovered wallets
+        try:
+            from alpha_bot.wallets.entity_resolver import resolve_entity
+            from alpha_bot.config import settings as _settings
+            if _settings.entity_resolution_enabled:
+                resolved = 0
+                for address, count in wallet_counter.items():
+                    if count < min_appearances:
+                        continue
+                    entity = await resolve_entity(address)
+                    if entity and entity.entity_name:
+                        resolved += 1
+                if resolved:
+                    logger.info("Resolved %d entities from new wallets", resolved)
+        except Exception:
+            logger.debug("Entity resolution skipped during wallet discovery")
+
         if _notify_fn:
             try:
                 await _notify_fn(
